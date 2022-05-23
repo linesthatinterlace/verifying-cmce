@@ -1,0 +1,106 @@
+// mceliece348864
+
+module gf where
+
+import helper
+import params
+
+// Functions
+
+// gf
+
+gf_iszero : gf_t -> [16]
+gf_iszero a = if a == 0 then 0x1fff else zero
+
+gf_add : gf_t -> gf_t -> gf_t
+gf_add in0 in1 = in0 ^ in1
+
+gf_mul : gf_t -> gf_t -> gf_t
+gf_mul in0 in1 = (drop tmp'') && GFMASK
+  where 
+    t0 = zext in0 : [32]
+    t1 = zext in1 : [32]
+    zs = [zero] # [z ^ (t0 * (t1 && (1 << i))) | z <- zs | i <- [0 .. <GFBITS_t]]
+    tmp = last zs
+    t = tmp && (zext 0x7FC000)
+    tmp' = ((tmp ^ (t >> 9)) ^ (t >> 12))
+    t' = tmp' && (zext 0x3000)
+    tmp'' = ((tmp' ^ (t' >> 9)) ^ (t' >> 12))
+
+property gf_mul_comm x y = ((gf_valid x) /\ (gf_valid y)) ==> (gf_mul x y == gf_mul y x)
+
+gf_sq : gf_t -> gf_t
+gf_sq in = (drop tmp'') && GFMASK
+  where
+    B = [0x55555555, 0x33333333, 0x0F0F0F0F, 0x00FF00FF]
+    x = zext in : [32]
+    x' = (x || (x << 8)) && (B @ 3)
+    x'' = (x' || (x' << 4)) && (B @ 2)
+    x''' = (x'' || (x'' << 2)) && (B @ 1)
+    x'''' = (x''' || (x''' << 1)) && (B @ 0)
+    tmp = x''''
+    t = tmp && (zext 0x7FC000)
+    tmp' = ((tmp ^ (t >> 9)) ^ (t >> 12))
+    t' = tmp' && (zext 0x3000)
+    tmp'' = ((tmp' ^ (t' >> 9)) ^ (t' >> 12))
+
+gf_inv : gf_t -> gf_t
+gf_inv in = gf_sq tmp_2047
+  where
+    tmp_3 = gf_mul (gf_sq in) in
+    tmp_15 = gf_mul ((gf_sq ~~> gf_sq) tmp_3) tmp_3
+    tmp_255 = gf_mul ((gf_sq ~~> gf_sq ~~> gf_sq ~~> gf_sq) tmp_15) tmp_15
+    tmp_1023 = gf_mul ((gf_sq ~~> gf_sq) tmp_255) tmp_3
+    tmp_2047 = gf_mul (gf_sq tmp_1023) in
+
+gf_frac : gf_t -> gf_t -> gf_t
+gf_frac den num = gf_mul (gf_inv den) num
+
+// Less efficient but semantically clearer implementations, which Cryptol can prove to be equivalent.
+
+gf_mul' : gf_t -> gf_t -> gf_t
+gf_mul' in0 in1 = pmod (pmult in0 in1) param_f
+
+property gf_mul_eq x y = ((gf_valid x) /\ (gf_valid y)) ==> (gf_mul x y == gf_mul' x y)
+
+gf_sq' : gf_t -> gf_t
+gf_sq' in = (gf_mul' in in) && GFMASK
+
+property sq_eq x = (gf_valid x) ==> (gf_sq x == gf_sq' x)
+
+gf_pow' : gf_t -> [12] -> gf_t
+gf_pow' in k = pows ! 0
+  where pows = [1] #  [ if bit then gf_mul' in (gf_sq x)
+                        else gf_mul' x x
+                        | x <- pows
+                        | bit <- k
+                      ]
+
+gf_inv' : gf_t -> gf_t
+gf_inv' in = gf_pow' in 4094
+
+gf_frac' : gf_t -> gf_t -> gf_t
+gf_frac' den num = gf_mul' (gf_inv' den) num
+
+property inv_equiv x = (gf_valid x) ==> (gf_inv x == gf_inv' x)
+
+// GF
+
+GF_valid : GF_t -> Bit
+GF_valid = all gf_valid
+
+GF_mul_pre_reduce : GF_t -> GF_t -> [2*SYS_T_t - 1]gf_t
+GF_mul_pre_reduce in0 in1 = last zs
+  where zs = [zero] # [update_ij z i j | z <- zs | j <- [0..SYS_T_t-1] , i <- [0..SYS_T_t-1] ]
+        update_ij z i j = xor_update z (i + j) ( gf_mul (in0@i) (in1@j) )
+
+GF_mul_reduce : [2*SYS_T_t - 1]gf_t -> GF_t
+GF_mul_reduce in = take <~ last zs
+  where zs = [in] # [update_i z i | z <- zs | i <- [2*(SYS_T_t-1), 2*(SYS_T_t-1) - 1 .. SYS_T_t] ]
+        update_i z i = u3
+                where u1 = xor_update z (i - SYS_T + 3) (z@i)
+                      u2 = xor_update u1 (i - SYS_T + 1) (u1@i)
+                      u3 = xor_update u2 (i - SYS_T + 0) (gf_mul (u2@i) 0x0002)
+
+GF_mul : GF_t -> GF_t -> GF_t
+GF_mul in0 in1 = GF_mul_reduce <~ GF_mul_pre_reduce in0 in1

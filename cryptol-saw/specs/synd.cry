@@ -1,0 +1,116 @@
+// mceliece348864
+
+module synd where
+
+import helper
+import params
+import gf
+import root
+
+synd : [SYS_T_t + 1]gf_t -> [SYS_N_t]gf_t -> [SYS_N_t/8][8] -> [2*SYS_T_t]gf_t
+synd f L r = last zss
+  where zss = [zero] # [ synd_loop f li (c i) zs | zs <- zss | i <- [0 .. <SYS_N_t] | li <- L ]
+        c i' = (zero # (r@(i'/8) >> (i'%8))) && (0x0001 : gf_t)
+        
+synd_loop : [SYS_T_t + 1]gf_t -> gf_t -> gf_t -> [2*SYS_T_t]gf_t -> [2*SYS_T_t]gf_t
+synd_loop f li c in = [ gf_add z (gf_mul e_inv c) | z <- in | e_inv <- e_invs ]
+  where e = eval f li
+        e_inv_pre = gf_inv (gf_mul e e)
+        e_invs = [e_inv_pre] # [ gf_mul e_inv li | e_inv <- e_invs ]
+
+synd_loop_2 : [SYS_T_t + 1]gf_t -> gf_t -> gf_t -> [2*SYS_T_t]gf_t -> [2*SYS_T_t]gf_t
+synd_loop_2 f li c in = [ gf_add z e_inv | z <- in | e_inv <- e_invs ]
+  where e = eval f li
+        e_inv_pre = gf_mul (gf_inv (gf_mul e e)) c
+        e_invs = iterate (\x -> gf_mul x li) e_inv_pre
+
+synd_unfolded : [SYS_T_t + 1]gf_t -> [SYS_N_t]gf_t -> [SYS_N_t] -> [2*SYS_T_t]gf_t
+synd_unfolded f L r = last zss
+  where zss = [zero] # [ if c then synd_loop_unfolded f li zs else zs | zs <- zss | li <- L | c <- r ]
+
+synd_loop_unfolded : [SYS_T_t + 1]gf_t -> gf_t -> [2*SYS_T_t]gf_t -> [2*SYS_T_t]gf_t
+synd_loop_unfolded f li in = [ gf_add z e_inv | z <- in | e_inv <- e_invs ]
+  where e = eval f li
+        e_inv_pre = gf_inv (gf_mul e e)
+        e_invs = iterate (\x -> gf_mul x li) e_inv_pre
+
+bytes_bits : [SYS_N_t/8][8] -> [SYS_N_t]
+bytes_bits r = join (map reverse r) 
+
+c_values : [SYS_N_t/8][8] -> [width (SYS_N_t - 1)] -> Bit
+property  c_values r i = i < SYS_N ==> 
+          c i == zero # [(bytes_bits r) @ i]
+            where c i' = (zero # (r@(i'/8) >> (i'%8))) && (0x0001 : gf_t)
+
+// Comment - another case where "case exhaustion" is useful.
+property synd_loop_loop_2_eq f li in c = synd_loop_2 f li c in == synd_loop f li c in
+
+property synd_loop_loop_2_eq_exhaust f li in = all (synd_loop_loop_2_eq f li in) [0x0000, 0x0001]
+
+property synd_eq f L r = synd f L r == synd_unfolded f L (join (map reverse r))
+
+/*
+synd : [SYS_T_t + 1]gf_t -> [SYS_N_t]gf_t -> [SYS_N_t/8][8] -> [2*SYS_T_t]gf_t
+synd f L r = last zss
+  where zss = [zero] # [ synd_loop f li (c i) zs | zs <- zss | i <- [0 .. <SYS_N_t] | li <- L ]
+        c i' = (zero # (r@(i'/8) >> (i'%8))) && (0x0001 : gf_t)
+*/
+
+
+synd_byte_addvals : [8]gf_t -> [8]gf_t -> [2*SYS_T_t][8]gf_t
+synd_byte_addvals inits lis = transpose <~ [ zvals li init  | li <- lis | init <- inits ]
+  where zvals li init = take zvals'
+          where zvals' = [init] # [gf_mul zval' li | zval' <- zvals']
+
+zadd : gf_t -> [8]gf_t -> gf_t
+zadd = foldl' gf_add
+
+synd_byte_add : [2*SYS_T_t][8]gf_t -> [2*SYS_T_t]gf_t -> [2*SYS_T_t]gf_t
+synd_byte_add addvals zs = [ zadd z addval | z <- zs | addval <- addvals ]
+
+synd_byte_einv : [SYS_T_t + 1]gf_t -> [8]gf_t -> [8]gf_t
+synd_byte_einv f lis = [ gf_inv (gf_mul (eval f li) (eval f li)) | li <- lis ]
+
+selector : {n} (fin n, 8 <= n) => [8] -> [8][n] -> [8][n]
+selector byt vs = [~(((zbyt >> i) && 1) - 1) && v | i <- [0 .. 7] | v <- vs]
+  where zbyt = zext byt : [n]
+
+synd_byte_seleinv : [8] -> [SYS_T_t + 1]gf_t -> [8]gf_t -> [8]gf_t
+synd_byte_seleinv byt f lis = (selector byt (synd_byte_einv f lis))
+
+synd_bytewise_byt : [8] -> [SYS_T_t + 1]gf_t -> [8]gf_t -> [2*SYS_T_t]gf_t -> [2*SYS_T_t]gf_t
+synd_bytewise_byt byt f lis zs = synd_byte_add addvals zs
+  where seleinv = synd_byte_seleinv byt f lis
+        addvals = synd_byte_addvals seleinv lis
+
+synd_bytewise : [SYS_T_t + 1]gf_t -> [SYS_N_t]gf_t -> [SYS_N_t/8][8] -> [2*SYS_T_t]gf_t
+synd_bytewise f L r = last zss
+  where zss     = [zero] # 
+                  [ synd_bytewise_byt byt f lis zs
+                  | byt <- r
+                  | lis <- groupBy`{8} <~ L
+                  | zs <- zss
+                  ]
+
+synd_bytewise_init : [SYS_T_t + 1]gf_t -> [SYS_N_t]gf_t -> [SYS_N_t/8][8] -> [SYS_N_t]gf_t
+synd_bytewise_init f L r = join [ synd_byte_seleinv byt f lis 
+                                | byt <- r 
+                                | lis <- groupBy`{8} <~ L
+                                ]
+
+synd_bytewise_next : [SYS_N_t]gf_t -> [SYS_N_t]gf_t -> [SYS_N_t]gf_t
+synd_bytewise_next L curr = [ gf_mul v l | v <- curr | l <- L ]
+
+synd_bytewise_sum : [SYS_N_t]gf_t -> gf_t
+synd_bytewise_sum = foldl' gf_add zero 
+
+synd_bytewise_alt : [SYS_T_t + 1]gf_t -> [SYS_N_t]gf_t -> [SYS_N_t/8][8] -> [2*SYS_T_t]gf_t
+synd_bytewise_alt f L r = map synd_bytewise_sum rows
+  where init = synd_bytewise_init f L r
+        rows = take <~ iterate (\x -> synd_bytewise_next L x ) init : [2*SYS_T_t][SYS_N_t]gf_t
+
+selector_alt : {n} (fin n, 8 <= n) => [8] -> [8][n] -> [8][n]
+selector_alt byt vs = [ if b then v else zero | b <- reverse byt | v <- vs]
+
+selector_eq : {n} (fin n, 8 <= n) => [8] -> [8][n] -> Bit
+selector_eq byt vs = selector byt vs == selector_alt byt vs

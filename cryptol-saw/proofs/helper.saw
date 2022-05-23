@@ -1,0 +1,18 @@
+// Utilities
+
+let ptr_to_fresh n ty = do {
+    x <- llvm_fresh_var n ty;
+    p <- llvm_alloc ty;
+    llvm_points_to p (llvm_term x);
+    return (x, p);
+};
+
+let ptr_to_fresh_readonly n ty = do {
+    x <- llvm_fresh_var n ty;
+    p <- llvm_alloc_readonly ty;
+    llvm_points_to p (llvm_term x);
+    return (x, p);
+};
+
+let w4_z3 = w4_unint_z3 [];
+let w4_yices = w4_unint_yices [];

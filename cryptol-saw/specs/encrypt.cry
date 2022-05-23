@@ -1,0 +1,86 @@
+// mceliece348864
+
+module encrypt where
+
+import helper
+import params
+
+same_mask' : [16] -> [16] -> [8]
+same_mask' x y = drop <~ -(((zext (x ^ y) : [32]) - 1) >> 31)
+
+same_mask : [16] -> [16] -> [8]
+same_mask x y = repeat (x == y)
+
+property same_mask_eq x y = same_mask x y == same_mask' x y
+
+b_func : {n} (fin n, n >=1) => [n] -> [n]
+b_func x = if foldl' (^) False x then 1 else 0
+
+b_func' : [8] -> [8]
+b_func' b_0 = b_4
+  where b_1 = b_0 ^ (b_0 >> 4)
+        b_2 = b_1 ^ (b_1 >> 2)
+        b_3 = b_2 ^ (b_2 >> 1)
+        b_4 = b_3 && 1
+
+property b_func_eq x = b_func x == b_func' x
+
+syndrome : [PK_NROWS_t*PK_ROW_BYTES_t][8] -> [SYS_N_t/8][8] -> [SYND_BYTES_t][8]
+syndrome pk e = last ss
+  where pk_ptrs = split`{PK_NROWS_t} pk
+        ss = [zero] #   [ syndrome_loop e pk_ptr i s  
+                        | pk_ptr <- pk_ptrs
+                        | i <- [0 .. <PK_NROWS_t] 
+                        | s <- ss
+                        ]
+
+syndrome_loop : [SYS_N_t/8][8] -> [PK_ROW_BYTES_t][8] -> [16] -> [SYND_BYTES_t][8] -> [SYND_BYTES_t][8]
+syndrome_loop e pk_ptr i s_pre = s_post
+  where row = zero # pk_ptr : [SYS_N_t/8][8] 
+        row' = update row (i/8) ((row @ (i/8)) || (1 << (i%8)))
+        b = b_func (foldl' (^) zero (zipWith (&&) row' e))
+        s_post = update s_pre (i/8) ((s_pre @ (i/8)) || (b << (i%8)))
+
+identityMatrix : {r, c} [r][c]
+identityMatrix @ i @ j = i == j
+
+syndrome_matrix : [PK_NROWS_t*PK_ROW_BYTES_t][8] 
+            -> [SYS_N_t/8][8] 
+            -> [SYND_BYTES_t][8]
+syndrome_matrix pk e = c0
+  where matrixT = [ join (map reverse row) 
+                  | row <- split`{PK_NROWS_t} pk
+                  ] : [PK_NROWS_t][PK_NCOLS_t]
+        matrixI = identityMatrix : [PK_NROWS_t][PK_NROWS_t]
+        matrixH = [rowI # rowT 
+                  | rowI <- matrixI
+                  | rowT <- matrixT
+                  ] : [PK_NROWS_t][SYS_N_t]
+        e_bits  = join (map reverse e) : [SYS_N_t]
+        c0_bits = [ foldr (^) zero  [ r_b && e_b 
+                                    | r_b <- row 
+                                    | e_b <- e_bits
+                                    ]
+                  | row <- matrixH 
+                  ] : [PK_NROWS_t]
+        c0      = map reverse (split c0_bits) : [SYND_BYTES_t][8]
+
+bytes_bit_dotprod : {n} (fin n) => [n][8] -> [n][8] -> [8]
+bytes_bit_dotprod u v = b_func (foldl' (^) 0 (zipWith (&&) u v))
+
+bytes_bit_mul_block : {n} (fin n) => [8*n][8] -> [n][8] -> [8]
+bytes_bit_mul_block us v = sum  [ bytes_bit_dotprod u v << i
+                                | u <- split`{8} us 
+                                | i <- [0 .. 7]
+                                ]            
+                                
+syndrome_bytewise : [SYND_BYTES_t*8*PK_ROW_BYTES_t][8] -> [SYND_BYTES_t + PK_ROW_BYTES_t][8] -> [SYND_BYTES_t][8]
+syndrome_bytewise pk e = e_id_bytes ^ pk_mul_bytes
+  where (e_id_bytes, e_pk_bytes) = splitAt`{SYND_BYTES_t} e 
+        pk_row_groups = split`{SYND_BYTES_t} pk
+        pk_mul_bytes  =   [ (bytes_bit_mul_block`{PK_ROW_BYTES_t} (pk_row_group) e_pk_bytes) 
+                          | pk_row_group <- pk_row_groups 
+                          ]
+
+property syndrome_eq pk e = syndrome pk e == syndrome_bytewise pk e
+property syndrome_mat_eq pk e = syndrome_matrix pk e == syndrome_bytewise pk e

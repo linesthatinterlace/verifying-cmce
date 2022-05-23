@@ -1,0 +1,20 @@
+// mceliece348864
+
+module root where
+
+import helper
+import params
+import gf
+
+eval : [SYS_T_t + 1]gf_t -> gf_t -> gf_t
+eval f a = rs ! 0
+  where rs = [f ! 0] # [gf_add (gf_mul r a) (f ! i) | r <- rs | i <- [1 .. SYS_T_t]]
+
+eval' : [SYS_T_t + 1]gf_t -> gf_t -> gf_t
+eval' f a = foldl' (\r c -> gf_add (gf_mul r a) c) zero (reverse f)
+
+eval_eq : [65]gf_t -> gf_t -> Bit
+property eval_eq x a = eval x a == eval' x a
+
+root : [SYS_T_t + 1]gf_t -> [SYS_N_t]gf_t -> [SYS_N_t]gf_t
+root f = map (eval f)

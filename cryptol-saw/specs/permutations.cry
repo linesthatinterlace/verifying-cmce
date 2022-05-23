@@ -1,0 +1,180 @@
+module permutations where
+import helper
+
+newtype Perm n = { perm : [n]Integer }
+
+hammingWeight : {n} (fin n) => [n] -> Integer
+hammingWeight = foldl' (\z b -> if b then z + 1 else z) 0
+
+count : {n, a} (fin n, Eq a) => [n]a -> a -> Integer
+count xs x' = hammingWeight [x' == x | x <- xs]
+
+unique : {n, a} (fin n, Eq a) => [n]a -> a -> Bit
+unique xs x' = count xs x' == 1
+
+validPerm : {n} (fin n) => Perm n -> Bit
+validPerm ps = all (unique ps.perm) [0 .. <n]
+
+applyPerm : {n, a} (fin n) => Perm n -> [n]a -> [n]a
+applyPerm ps xs = xs @@ ps.perm
+
+calcInverse : {n} (fin n) => Perm n -> Perm n
+calcInverse ps = Perm { perm = applyPermInverse ps [0 .. <n] }
+
+applyPermInverse : {n, a} (fin n) => Perm n -> [n]a -> [n]a
+applyPermInverse ps = updates undefined ps.perm
+
+applyPermInverseSort : {n, a} (fin n, Cmp a) => Perm n -> [n]a -> [n]a
+applyPermInverseSort ps xs = map (\(a, b) -> b) <~ sort (zip ps.perm xs)
+
+calcInverseSort : {n} (fin n) => Perm n -> Perm n
+calcInverseSort ps = Perm { perm = applyPermInverseSort ps [0 .. <n] }
+
+applyPermSort : {n, a} (fin n, Cmp a) => Perm n -> [n]a -> [n]a
+applyPermSort ps = applyPermInverseSort (calcInverseSort ps)
+
+xorOne : Integer -> Integer
+xorOne n = if n % 2 == 0 then n + 1 else n - 1
+
+xorOnePerm : {n} (fin n) => Perm n
+xorOnePerm = Perm {perm = map xorOne [0 .. <n]}
+
+composePermPerm : {n} (fin n) => Perm n -> Perm n -> Perm n
+composePermPerm p q = Perm { perm = applyPermSort q p.perm }
+
+composePermInv : {n} (fin n) => Perm n -> Perm n -> Perm n
+composePermInv p q = Perm { perm = applyPermInverseSort q p.perm }
+
+permBarTwoPowers : {n} (fin n, n % 2 == 0) => Perm n -> [inf][2](Perm n)
+permBarTwoPowers pi = [[pi_bar, pi_bar_inv]] #  [[composePermInv p' q', composePermInv q' p']
+                                                | [p', q'] <- permBarTwoPowers pi
+                                                ]
+  where pi_bar = composePermInv p q
+        pi_bar_inv = composePermInv q p
+        p = composePermPerm pi xorOnePerm
+        q = composePermPerm xorOnePerm pi
+
+
+cycleminsUpToTwoI : {n} (fin n, n % 2 == 0) => Perm n -> [inf][n]Integer
+cycleminsUpToTwoI pi = [[0 .. <n]] #  [zipWith (min) c (applyPermInverseSort q c)
+                                      | c <- cycleminsUpToTwoI pi
+                                      | q <- join <~ map drop`{1} (permBarTwoPowers`{n} pi)
+                                      ]
+
+cyclemins : {m} (fin m) => Perm (2*2^^m) -> [2*2^^m]Integer
+cyclemins pi = head <~ drop`{m} <~ cycleminsUpToTwoI pi
+
+even_cyclemins : {m} (fin m) => Perm (2*2^^m) -> [2^^m]Integer
+even_cyclemins pi = head <~ uninterleve <~ cyclemins`{m} pi
+
+xIfs : {n} [n] -> Perm (2*n)
+xIfs cs = Perm { perm = join [ if c then reverse p else p | c <- cs | p <- groupBy`{2} [0 .. <(2*n)]] }
+
+firstControlBits : {m} (fin m) => Perm (2*2^^m) -> [2^^m]
+firstControlBits pi = map (\x -> x % 2 == 1) <~ even_cyclemins`{m} pi
+
+F_perm : {m} (fin m) => Perm (2*2^^m) -> Perm (2*2^^m)
+F_perm pi = xIfs (firstControlBits`{m} pi)
+
+Fpi : {m} (fin m) => Perm (2*2^^m) -> Perm (2*2^^m)
+Fpi pi = composePermPerm (F_perm`{m} pi) pi
+
+even_Fpi : {m} (fin m) => Perm (2*2^^m) -> [2^^m]Integer
+even_Fpi pi = head <~ uninterleve <~ (Fpi`{m} pi).perm
+
+lastControlBits : {m} (fin m) => Perm (2*2^^m) -> [2^^m]
+lastControlBits pi = map (\x -> x % 2 == 1) <~ even_Fpi`{m} pi
+
+L_perm : {m} (fin m) => Perm (2*2^^m) -> Perm (2*2^^m)
+L_perm pi = xIfs (lastControlBits`{m} pi)
+
+M_perm : {m} (fin m) => Perm (2*2^^m) -> Perm (2*2^^m)
+M_perm pi = composePermInv (Fpi`{m} pi) (L_perm`{m} pi) 
+
+controlBits : {m} (fin m) => Perm (2*2^^m) -> [(2*m + 1)*2^^m]
+controlBits pi = 
+  if `m == (0 : Integer)
+  then coerceSize <~ controlBits_zero`{0} pi_zero
+  else coerceSize <~ controlBits_rec`{max 1 m} pi_rec
+    where 
+      pi_zero = Perm { perm = coerceSize pi.perm }
+      pi_rec = Perm { perm = coerceSize pi.perm }
+
+controlBits_zero : {m} (fin m, m == 0) => Perm (2*2^^m) -> [(2*m + 1)*2^^m]
+controlBits_zero pi = [pi.perm @ 0 == 1]
+
+controlBits_rec : {m} (fin m, m>=1) => Perm (2*2^^m) -> [(2*m + 1)*2^^m]
+controlBits_rec pi = coerceSize <~ firstControlBits`{m} pi # middlebits # lastControlBits`{m} pi
+  where
+    middlebits = interleve [M0_bits, M1_bits]
+    M0_bits = controlBits`{m - 1} (Perm {perm = M0})
+    M1_bits = controlBits`{m - 1} (Perm {perm = M1})
+    [M0, M1] = map coerceSize [ map (\x -> x/2) p | p <- uninterleve <~ (M_perm`{m} pi).perm]
+
+coerceSize : {m, n, a} (fin m, fin n) => [m]a -> [n]a
+coerceSize xs = take <~ (xs # undefined`{[max m n - m]a})
+
+condSwap : {n, a, ix} (Integral ix) => Bit -> [2]ix -> [n]a -> [n]a
+condSwap c [i, j] xs = if c then updates xs [i, j] [xs @ j, xs @ i] else xs
+
+controlBitsToPerm : {m} (fin m) => [(2*m + 1)*2^^m] -> Perm (2*2^^m)
+controlBitsToPerm cs = last ps
+  where p_init = Perm { perm = [0 .. <(2*2^^m)] }
+        ps = [p_init] # [ Perm {perm = condSwap c cp p.perm}
+                        | c <- cs
+                        | cp <- controlledPairs`{m}
+                        | p <- ps
+                        ]
+
+condRound cs cps p_init = last ps
+  where ps = [p_init] # [ Perm {perm = condSwap c cp p.perm}
+                        | c <- cs
+                        | cp <- cps
+                        | p <- ps
+                        ]
+
+controlRoundsToPerm : {m} (fin m) => [2*m + 1][2^^m] -> Perm (2*2^^m)
+controlRoundsToPerm css = last ps
+  where p_init = Perm { perm = [0 .. <(2*2^^m)] }
+        ps = [p_init] # [ condRound cs cps p
+                        | cs <- css
+                        | cps <- controlledRounds`{m}
+                        | p <- ps
+                        ]
+
+controlledPairs : {m} (fin m) => [(2*m + 1)*2^^m][2]Integer
+controlledPairs = join <~ controlledRounds`{m}
+
+controlledRounds : {m} (fin m) => [2*m + 1][2^^m][2]Integer
+controlledRounds = outerRounds`{m} # [centreRound`{m}] # (reverse outerRounds`{m})
+
+outerRounds : {m} (fin m) => [m][2 ^^ m][2]Integer
+outerRounds = take rounds`{m}
+
+centreRound : {m} (fin m) => [2^^m][2]Integer
+centreRound = head <~ drop`{m} rounds`{m}
+
+rounds : {m} (fin m) => [m + 1][2^^m][2]Integer
+rounds = [ (iterfun i faro_shuff`{2^^m}) <~ groupBy`{2} <~ (iterfun i inv_faro_shuff`{2*2^^m}) <~ [0 .. <(2*2^^m)] | i <- [0 .. m] ]
+
+interleve : {n, a} (fin n) => [2][n]a -> [2*n]a
+interleve = transpose ~~> join
+
+uninterleve : {n, a} (fin n) => [2*n]a -> [2][n]a
+uninterleve = split ~~> transpose
+
+inv_faro_shuff_even : {n, a} (fin n) => [2*n]a -> [2*n]a
+inv_faro_shuff_even = uninterleve ~~> join
+
+faro_shuff_even : {n, a} (fin n) => [2*n]a -> [2*n]a
+faro_shuff_even = split ~~> interleve
+
+iterfun : {a} Integer -> (a -> a) -> a -> a
+iterfun n f x = if n <= 0 then x
+                else f (iterfun (n - 1) f x)
+
+faro_shuff : {n, a} (fin n) => [n]a -> [n]a
+faro_shuff xs = (faro_shuff_even`{n/2} <~ take xs) # (drop xs)
+
+inv_faro_shuff : {n, a} (fin n) => [n]a -> [n]a
+inv_faro_shuff xs = (inv_faro_shuff_even`{n/2} <~ take xs) # (drop xs)

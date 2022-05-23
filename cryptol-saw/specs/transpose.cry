@@ -1,0 +1,8 @@
+// mceliece348864
+
+module transpose where
+
+import helper
+
+transpose_64x64 : [64][64] -> [64][64]
+transpose_64x64 = reverse ~~> transpose ~~> reverse

@@ -1,0 +1,66 @@
+module helper where
+
+// Utilities
+(~~>) : {a, b, c} (a -> b) -> (b -> c) -> a -> c
+(~~>) f g = \x -> g (f x)
+infixr 100 ~~>
+
+(<~) : {a, b} (a -> b) -> a -> b
+(<~) f x = f x
+infixr 1 <~
+
+(<==>) : Bit -> Bit -> Bit
+a <==> b = (a ==> b) && (b ==> a)
+infixr 5 <==>
+
+(<==) : Bit -> Bit -> Bit
+a <== b = (b ==> a)
+infixr 5 <==
+
+xnor : Bit -> Bit -> Bit
+xnor a b = (a /\ b) \/ (~a /\ ~b)
+
+xor_update : {n, a, b} (Integral a, Logic b) => [n]b -> a -> b -> [n]b
+xor_update z ix a = update z ix ((z@ix) ^ a)
+
+loadbytes : {n} (fin n) => [n][8] -> [n*8]
+loadbytes = reverse ~~> join
+
+storebytes : {n} (fin n) => [n*8] -> [n][8]
+storebytes = split ~~> reverse
+
+/**
+ * Sort a sequence of elements. Equivalent to 'sortBy (<=)'.
+ */
+sort : {a, n} (Cmp a, fin n) => [n]a -> [n]a
+sort = sortBy (<=)
+
+/**
+ * Sort a sequence according to the given less-than-or-equal relation.
+ * The sorting is stable, so it preserves the relative position of any
+ * pair of elements that are equivalent according to the order relation.
+ */
+sortBy : {a, n} (fin n) => (a -> a -> Bit) -> [n]a -> [n]a
+sortBy le vs =
+  if `n == (0 : Integer) then vs
+  else drop`{1 - min 1 n} (insertBy (vs@0) (sortBy le (drop`{min 1 n} vs)))
+  where
+    insertBy : {k} (fin k) => a -> [k]a -> [k+1]a
+    insertBy x0 ys = xys.0 # [last xs]
+      where
+        xs : [k+1]a
+        xs = [x0] # xys.1
+        xys : [k](a, a)
+        xys = [ if le x y then (x, y) else (y, x) | x <- xs | y <- ys ]
+
+sortedBy : {a, n} (fin n) => (a -> a -> Bit) -> [n]a -> Bool
+sortedBy le vs = 
+  if (`n == (0 : Integer)) || (`n == (1 : Integer)) then True
+  else le x y && (sortedBy le (drop`{min 1 n} vs))
+  where [x, y] = take`{2} (vs # (undefined : [2 - (min 2 n)]a))
+
+sorted : {a, n} (Cmp a, fin n) => [n]a -> Bool
+sorted = sortedBy (<=)
+
+sortedWorks : {n, a} (Cmp a, fin n) => [n]a -> Bool
+sortedWorks xs = sorted (sort xs)

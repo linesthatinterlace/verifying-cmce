@@ -1,0 +1,132 @@
+// mceliece348864
+
+module bm where
+
+import helper
+import params
+import gf
+import root
+
+// This is the Berlkamp-Massey function as (approximately) implemented in the RI.
+// We do, however, break it up into some sub-functions.
+bm : [2*SYS_T_t]gf_t -> [SYS_T_t + 1]gf_t
+bm s = reverse C_final
+  where (B_init : [SYS_T_t + 1]gf_t) = [zero, 1] # zero
+        (C_init : [SYS_T_t + 1]gf_t) = [1] # zero
+        (b_init : gf_t) = 1
+        (L_init : [16]) = 0
+        data_init = (B_init, C_init, b_init, L_init)
+        datas = [data_init] # [ bm_loop s N data' | data' <- datas | N <- [0 .. <2*SYS_T_t] ]
+        (B_final, C_final, b_final, L_final) = last datas
+
+type BM_Loop_Data = ([SYS_T_t + 1]gf_t, [SYS_T_t + 1]gf_t, gf_t, [16])
+
+bm_loop : [2*SYS_T_t]gf_t -> [16] -> BM_Loop_Data -> BM_Loop_Data
+bm_loop s N data = bm_modif N d data
+  where (B, C, b, L) = data
+        d = bm_calc s C N
+
+bm_calc : [2*SYS_T_t]gf_t -> [SYS_T_t + 1]gf_t -> [16] -> gf_t
+bm_calc s C N = if N < 2*SYS_T then last ds else ds@0
+  where ds = [zero] # [ if i <= N
+                        then d' ^ (gf_mul ( C@i ) ( s@(N - i) ) )
+                        else d'
+                      | d' <- ds
+                      | i <- [0 .. SYS_T_t]
+                      ]
+
+bm_modif : [16] -> gf_t -> BM_Loop_Data -> BM_Loop_Data
+bm_modif N d data = (B_final, C_final, b_final, L_final)
+  where (B, C, b, L) = data
+        mne = ((d - 1) >> 15) - 1
+        mle = (((N - 2*L) >> 15) - 1) && mne
+        f = gf_frac b d
+        C_final = [Ci ^ ((gf_mul f Bi) && mne) | Ci <- C | Bi <- B]
+        L_final = (L && ~mle) || ((N+ 1 - L) && mle)
+        b_final = (b && ~mle) || (d && mle)
+        B_final = [ (mB && ~mle) || (mC && mle) | mB <- B | mC <- C ] >> 1
+
+bm_paper : [2*SYS_T_t]gf_t -> [SYS_T_t + 1]gf_t
+bm_paper s = reverse C_final
+  where (B_init : [SYS_T_t + 1]gf_t) = [0, 1] # zero
+        (C_init : [SYS_T_t + 1]gf_t) = [1] # zero
+        (b_init : gf_t) = 1
+        (L_init : [16]) = 0
+        data_init = (B_init, C_init, b_init, L_init)
+        datas = [data_init] # [ bm_loop_paper s N data' | data' <- datas | N <- [0 .. <2*SYS_T_t] ]
+        (B_final, C_final, b_final, L_final) = last datas
+
+bm_loop_paper : [2*SYS_T_t]gf_t -> [16] -> BM_Loop_Data -> BM_Loop_Data
+bm_loop_paper s N data = bm_modif_paper N d  data
+  where (B, C, b, L) = data 
+        d = bm_calc_paper s C N L
+
+bm_calc_paper : [2*SYS_T_t]gf_t -> [SYS_T_t + 1]gf_t -> [16] -> [16] -> gf_t
+bm_calc_paper s C N L = if N < 2*SYS_T then last ds else ds@0
+  where ds = [zero] # [ if i <= L
+                        then d' ^ (gf_mul Ci Si)
+                        else d'
+                      | Ci <- C
+                      | Si <- s'
+                      | d' <- ds
+                      | i <- [0 .. SYS_T_t]
+                      ]
+        s' = reverse (s <<< (N + 1))
+
+bm_modif_paper : [16] -> gf_t -> BM_Loop_Data -> BM_Loop_Data
+bm_modif_paper N d data = (B_final, C_final, b_final, L_final)
+  where (B, C, b, L) = data
+        f = gf_frac b d
+        C' = [ Ci ^ (gf_mul f Bi) | Ci <- C | Bi <- B ]
+        (B_final, C_final, b_final, L_final) =
+          if d == 0 then
+            (B >> 1, C, b, L)
+          else if 2*L > N then
+            (B >> 1, C', b, L)
+          else
+            (C >> 1, C', d, N + 1 - L)
+
+make_zero_from : {m, a} (Zero a) => Integer -> [m]a -> [m]a
+make_zero_from N xs = [ if i < N then x else zero | x <- xs | i <- [0 .. <m] ]
+
+zero_from : {m, a} (Zero a, Eq a, fin m) => Integer -> [m]a -> Bit
+zero_from N xs = and [ if i < N then True else x == zero | x <- xs | i <- [0 .. <m] ]
+
+zf_prop : {n, a} (Eq a, Zero a, fin n) => Integer -> [n]a -> Bit
+property zf_prop N xs = zero_from N (make_zero_from N xs)
+
+// Can't seem to prove this - SMT-Lib2 produced fast but hard to get anywhere with solving.
+// "Should" be the same as calc_eq_exhaust
+calc_eq : [128]gf_t -> [65]gf_t -> [16] -> [16] -> Bit
+property calc_eq s C N L = (L <= N) ==> (zero_from (toInteger (L + 1)) C) ==> bm_calc_paper s C N L == bm_calc s C N
+
+// Proven using w4-yices.
+// Comment - mathsat is faster using SBV. Could we have w4-mathsat?
+// Comment - I am "exhausting over one variable" here - wish I could generalise!
+property calc_eq_exhaust s C = and [(calc_eq s C N N) | N <- [0 .. 127]]
+
+// Probably easier to do with rewrites? Can you prove a rewrite rule using a rewrite?
+property bm_loop_eq s N data = (all gf_valid s)  /\ (L < 0x4001) ==> bm_loop_paper s N data == bm_loop s N data
+  where (B, C, b, L) = data 
+
+property logicals d N L = 
+  (xnor (2*L <= N) (N - 2*L <= 0x7fff) /\ 
+  (d != 0x0000) /\ (d < 0x8001) ) \/ (d == 0x0000)
+  <==> (mne, mle) == (mne', mle')
+    where   mne = ((d - 1) >> 15) - 1
+            mle = (((N - 2*L) >> 15) - 1) && mne
+            mne' = repeat (d != 0)
+            mle' = repeat <~ (d != 0) && (2*L <= N)
+
+// Proven using w4-yices.
+property bm_modif_eq N d data = 
+  (xnor (2*L <= N) (N - 2*L <= 0x7fff) /\ 
+  (d != 0x0000) /\ (d < 0x8001) ) \/ (d == 0x0000) ==> 
+  (bm_modif N d data) == (bm_modif_paper N d data)
+    where (B, C, b, L) = data
+
+// Don't expect to be able to prove this - but it is the "correctness" propertyfor a bm calculation!
+bm_works : ([2*SYS_T_t]gf_t -> [SYS_T_t + 1]gf_t) -> [2*SYS_T_t]gf_t -> Bit
+property bm_works bm_candidate s = syndromes == zero
+  where syndromes =  [bm_calc_paper s (reverse C) N N | N <- [SYS_T_t .. <2*SYS_T_t]] 
+        C = (bm_candidate s)

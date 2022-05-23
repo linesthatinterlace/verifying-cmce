@@ -1,0 +1,31 @@
+// mceliece348864
+
+module util where
+
+import helper
+import params
+
+store_gf : gf_t -> [2][8]
+store_gf = storebytes
+
+load_gf : [2][8] -> gf_t
+load_gf x = loadbytes x && GFMASK
+
+load4 : [4][8] -> [32]
+load4 = loadbytes
+
+load8 : [8][8] -> [64]
+load8 = loadbytes
+
+store8 : [64] -> [8][8]
+store8 = storebytes
+
+bitrev : gf_t -> gf_t
+bitrev x = (reverse x) >> 4
+
+store_gf' : gf_t -> [2][8]
+store_gf' x = map drop [x && 255, x >> 8]
+
+load_gf' : [2][8] -> gf_t
+load_gf' xs = (((xs' @ 1) << 8) || (xs' @ 0)) && GFMASK
+  where xs' = map zext xs

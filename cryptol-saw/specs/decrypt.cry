@@ -1,0 +1,23 @@
+// mceliece348864
+
+module decrypt where
+
+import helper
+import params
+import synd
+import root
+import gf
+import bm
+
+error_l : [SYS_N_t]gf_t -> [SYS_N_t/8][8]
+error_l images = last es
+  where es = [zero] # [ update e (i/8) (e@(i/8) || drop ((gf_iszero (images@i) && 1) << i%8))
+                      | i <- [0 .. <SYS_N_t]
+                      | e <- es
+                      ]
+
+error_l_alt : [SYS_N_t]gf_t -> [SYS_N_t/8][8]
+error_l_alt = map (\x -> x == zero) ~~> bits_bytes
+
+// Proven in 4.139s in Yices (SBV)
+property error_eq images = error_l images == error_l_alt images

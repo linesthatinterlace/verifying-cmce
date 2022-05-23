@@ -1,0 +1,125 @@
+digraph G {
+  color=black;rankdir=RL;fontsize=20;ranksep=2;
+  subgraph "cluster_gf.c" {
+    label="gf.c";
+    gf_iszero [shape=box,fontsize=22,label="gf_iszero"];
+    gf_add [shape=box,fontsize=22,label="gf_add"];
+    gf_mul [shape=box,fontsize=22,label="gf_mul"];
+    gf_sq [shape=box,fontsize=22,label="gf_sq"];
+    gf_inv [shape=box,fontsize=22,label="gf_inv"];
+    gf_frac [shape=box,fontsize=22,label="gf_frac"];
+    GF_mul [shape=box,fontsize=22,label="GF_mul"];
+    gf_inv -> gf_sq;
+    gf_inv -> gf_mul;
+    gf_frac -> gf_inv;
+    gf_frac -> gf_mul;
+    GF_mul -> gf_mul;
+  }
+  subgraph "cluster_rarefunctions" {
+    subgraph "cluster_crypto_kem.h" {
+      label="crypto_kem.h";
+      crypto_hash_32b [shape=box,fontsize=22,label="crypto_hash_32b"];
+      shake [shape=box,fontsize=22,label="shake"];
+      SHAKE256 [shape=box,fontsize=22,label="SHAKE256 (library function)"];
+      crypto_hash_32b -> SHAKE256;
+      shake -> SHAKE256;
+    }
+    subgraph "cluster_nist/rng.c" {
+      label="nist/rng.c";
+      randombytes [shape=box,fontsize=22,label="randombytes"];
+      rng_int [shape=box,fontsize=22,label="Internal RNG functions"];
+      randombytes -> rng_int;
+    }
+    subgraph "cluster_transpose.c" {
+      label="transpose.c";
+      transpose_64x64 [shape=box,fontsize=22,label="transpose_64x64"];
+    }
+    subgraph "cluster_int32_sort.h" {
+      label="int32_sort.h";
+      int32_sort [shape=box,fontsize=22,label="int32_sort"];
+    }
+    subgraph "cluster_uint64_sort.h" {
+      label="uint64_sort.h";
+      uint64_sort [shape=box,fontsize=22,label="uint64_sort"];
+    }
+  }
+  subgraph "cluster_util.c" {
+    label="util.c";
+    store_gf [shape=box,fontsize=22,label="store_gf"];
+    load_gf [shape=box,fontsize=22,label="load_gf"];
+    load4 [shape=box,fontsize=22,label="load4"];
+    store8 [shape=box,fontsize=22,label="store8"];
+    load8 [shape=box,fontsize=22,label="load8"];
+    bitrev [shape=box,fontsize=22,label="bitrev"];
+  }
+  subgraph "cluster_secondlevel" {
+    subgraph "cluster_bm.c" {
+      label="bm.c";
+      bm [shape=box,fontsize=22,label="bm"];
+      bm -> {gf_mul gf_frac};
+    }
+    subgraph "cluster_root.c" {
+      label="root.c";
+      eval [shape=box,fontsize=22,label="eval"];
+      root [shape=box,fontsize=22,label="root"];
+      eval -> {gf_mul gf_add};
+      root -> eval;
+    }
+    subgraph "cluster_synd.c" {
+      label="synd.c";
+      synd [shape=box,fontsize=22,label="synd"];
+      synd -> {eval gf_inv gf_mul gf_add};
+    }
+    subgraph "cluster_benes.c" {
+      label="benes.c";
+      benes_layer [shape=box,fontsize=22,label="layer"];
+      apply_benes [shape=box,fontsize=22,label="apply_benes"];
+      support_gen [shape=box,fontsize=22,label="support_gen"];
+      apply_benes -> {load8 transpose_64x64 benes_layer load4 store8};
+      support_gen -> {bitrev apply_benes};
+    }
+    subgraph "cluster_controlbits.c" {
+      label="controlbits.c";
+      cbrecursion [shape=box,fontsize=22,label="cbrecursion"];
+      controlbits_layer [shape=box,fontsize=22,label="layer"];
+      controlbitsfrompermutation [shape=box,fontsize=22,label="controlbitsfrompermutation"];
+      cbrecursion -> {int32_sort cbrecursion};
+      controlbitsfrompermutation -> {cbrecursion, controlbits_layer};
+    }
+  }
+  subgraph "cluster_primitive" {
+    subgraph "cluster_sk_gen.c" {
+      label="sk_gen.c";
+      genpoly_gen [shape=box,fontsize=22,label="genpoly_gen"];
+      genpoly_gen -> {GF_mul gf_iszero gf_inv gf_mul gf_mul};
+    }
+    subgraph "cluster_decrypt.c" {
+      label="decrypt.c";
+      decrypt [shape=box,fontsize=22,label="decrypt"];
+      decrypt -> { support_gen synd bm root gf_iszero load_gf};
+    }
+    subgraph "cluster_pk_gen.c" {
+      label="pk_gen.c";
+      pk_gen [shape=box,fontsize=22,label="pk_gen"];
+      pk_gen -> {load_gf bitrev gf_inv gf_mul	uint64_sort};
+    }
+    subgraph "cluster_encrypt.c" {
+      label="encrypt.c";
+      same_mask [shape=box,fontsize=22,label="same_mask"];
+      gen_e [shape=box,fontsize=22,label="gen_e"];
+      syndrome [shape=box,fontsize=22,label="syndrome"];
+      encrypt [shape=box,fontsize=22,label="encrypt"];
+      gen_e -> {randombytes load_gf same_mask};
+      encrypt -> {gen_e syndrome};
+    }
+  }
+  subgraph "cluster_operations.c" {
+    label="operations.c";
+    crypto_kem_enc [shape=box,fontsize=22,label="crypto_kem_enc"];
+    crypto_kem_dec [shape=box,fontsize=22,label="crypto_kem_dec"];
+    crypto_kem_keypair [shape=box,fontsize=22,label="crypto_kem_keypair"];
+    crypto_kem_enc -> {encrypt crypto_hash_32b};
+    crypto_kem_dec -> {crypto_hash_32b decrypt};
+    crypto_kem_keypair -> { randombytes shake load_gf genpoly_gen store_gf load4 pk_gen controlbitsfrompermutation store8};
+  }
+}

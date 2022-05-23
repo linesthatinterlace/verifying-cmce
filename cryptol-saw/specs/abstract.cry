@@ -1,0 +1,60 @@
+// mceliece348864
+
+module abstract where
+
+import helper
+import params
+import gf
+import permutations
+import bm
+import synd
+import keccak
+import int32_sort
+import util
+
+type l_t = 256
+type sigma1_t = 16
+type sigma2_t = 32
+type q_t = 2^^GFBITS_t
+type k_t = SYS_N_t - GFBITS_t*SYS_T_t
+type mu_t = 0
+
+type PublicKey_t = [SYS_N_t - k_t][k_t]
+type PrivateKey_t = ([l_t], [mu_t]Integer,  [SYS_T_t + 1]gf_t, [q_t]gf_t, [SYS_N_t])
+
+keyGen : [l_t] -> (PublicKey_t, PrivateKey_t)
+keyGen = undefined
+
+seededKeyGen : [l_t] -> (PublicKey_t, PrivateKey_t)
+seededKeyGen = undefined
+
+G : [l_t] -> [SYS_N_t + sigma2_t*q_t + sigma1_t*SYS_T_t + l_t]
+G = SHAKE256 ~~> take
+
+unzip : {n, a, b} [n](a, b) -> ([n]a, [n]b)
+unzip xs = ([p.0 | p <- xs], [p.1 | p <- xs])
+
+sorted_unique : {n, a} (fin n, n >=1, Eq a) => [n]a -> Bit
+sorted_unique xs = all (\(x, y) -> x != y) <~ drop`{1} (zip xs (xs >>> 1) )
+
+fieldOrdering_gen : {m, s} (fin m, fin s, s >= 2*m, m >= width (max 1 (2 ^^ m) - 1)) => [(2^^m)*s] -> ([2^^m][m], Bit)
+fieldOrdering_gen x = (map reverse elems, success)
+  where as = split`{2^^m} x : [2^^m][s]
+        pairs = zip as ([0 .. <2^^m] : [2^^m][m])
+        (sorted_as, elems) = unzip (sort pairs)
+        success = sorted_unique sorted_as
+
+fieldOrdering : [sigma2_t*q_t] -> ([q_t]gf_t, Bit)
+fieldOrdering x = (map bitrev elems, success)
+  where as = split`{q_t} x
+        pairs = zip as ([0 .. <q_t] : [q_t]gf_t)
+        (sorted_as, elems) = unzip (sort pairs)
+        success = sorted_unique sorted_as
+
+irreducible : [sigma1_t*SYS_T_t] -> [SYS_T_t]gf_t //[SYS_T_t + 1]gf_t
+irreducible x = truncated_inputs
+  where inputs = split`{SYS_T_t} x
+        truncated_inputs = map (take`{GFBITS_t} ~~> reverse ~~> zext`{16}) inputs
+
+matGen : ([SYS_T_t + 1]gf_t, [SYS_N_t]gf_t) -> (PublicKey_t, [mu_t]Integer, [SYS_T_t + 1]gf_t, [SYS_N_t]gf_t)
+matGen = undefined

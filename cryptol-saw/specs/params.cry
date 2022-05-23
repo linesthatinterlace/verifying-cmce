@@ -1,0 +1,35 @@
+//mceliece348864
+
+// Params
+module params where
+
+param_f = <| x^^12 + x^^3 + 1 |>
+type GFBITS_t = 12
+GFBITS = `(GFBITS_t)
+type gf_t = [16]
+GFMASK = ((1 << GFBITS) - 1) : gf_t
+
+gf_valid : gf_t -> Bit
+gf_valid x = x <= GFMASK
+
+gf_mask : {n} (fin n, n >= 16) => [n] -> gf_t
+gf_mask x = drop x && GFMASK
+
+param_F = [0x0001] # zero # [0x0001, zero, 0x0001, 0x0010] : [65]gf_t
+type SYS_T_t = 64
+SYS_T = `(SYS_T_t)
+type GF_t = [SYS_T_t]gf_t
+
+type SYS_N_t = 3488
+SYS_N = `(SYS_N_t)
+
+
+type PK_NROWS_t = (SYS_T_t*GFBITS_t) 
+type PK_NCOLS_t = (SYS_N_t - PK_NROWS_t)
+type PK_ROW_BYTES_t = (PK_NCOLS_t)/^8
+type SYND_BYTES_t = (PK_NROWS_t)/^8
+
+PK_NROWS = `(PK_NROWS_t)
+PK_NCOLS = `(PK_NCOLS_t)
+PK_ROW_BYTES = `(PK_ROW_BYTES_t)
+SYND_BYTES = `(SYND_BYTES_t)
