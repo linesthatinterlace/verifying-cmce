@@ -1,190 +1,117 @@
-import algebra.big_operators.basic
+import topology.metric_space.basic
+import analysis.normed.group.basic
 
-namespace coding_theory
+namespace fintype
+open subtype
 
-section hamming
+variables {α : Type*} (p q : α → Prop)
+[fintype {x // p x}] [fintype {x // q x}] [fintype {x // p x ∨ q x}] [fintype {x // p x ∧ q x}]
 
-open_locale big_operators
-variables {n : ℕ} {K : Type*} (x y z : fin n → K)
+-- PR THIS
 
-section decidable_eq
-variable [decidable_eq K]
+theorem card_subtype_le_of_imp (h : p ≤ q) : card {x // p x} ≤ card {x // q x} := card_le_of_embedding (imp_embedding _ _ h)
 
-open finset function
+end fintype
 
-def ham_dist : ℕ := (filter (λ i, x i ≠ y i) univ).card
+open fintype
 
-@[simp]
-lemma ham_dist_eq : ham_dist x y = (filter (λ i, x i ≠ y i) univ).card := rfl
+def ham {ι : Type*} [fintype ι] (β : ι → Type*) [Π i, decidable_eq (β i)] : Type* := Π i, β i
 
-lemma ham_dist_eq_sum_ite : ham_dist x y = ∑ i, if x i ≠ y i then 1 else 0 :=
-by { simp, rw [sum_ite, ← card_eq_sum_ones, sum_const_zero, zero_add] }
+local notation `𝓗[` K`,` n`]` := ham (λ _ : fin n, K)
 
-@[simp]
-lemma ham_dist_self_eq_zero : ham_dist x x = 0 := by simp
+namespace hamming
 
-lemma ham_dist_comm : ham_dist x y = ham_dist y x :=
-by { simp, congr, ext, exact ne_comm }
+variables {α ι : Type*} [semiring α] [fintype ι] {β : ι → Type*} [Π i, decidable_eq (β i)] 
+@[pattern] def of_ham : ham β ≃ Π i, β i := equiv.refl _
+@[pattern] def to_ham : (Π i, β i) ≃ ham β := equiv.refl _
 
-lemma zero_le_ham_dist : 0 ≤ ham_dist x y := zero_le _
+@[simp] lemma to_ham_symm_eq : (@to_ham _ _ β _).symm = of_ham := rfl
+@[simp] lemma of_ham_symm_eq : (@of_ham _ _ β _).symm = to_ham := rfl
+@[simp] lemma to_ham_of_ham (x : ham β) : to_ham (of_ham x) = x := rfl
+@[simp] lemma of_ham_to_ham (x : Π i, β i) : of_ham (to_ham x) = x := rfl
+@[simp] lemma to_ham_inj {x y : Π i, β i} : to_ham x = to_ham y ↔ x = y := iff.rfl
+@[simp] lemma of_ham_inj {x y : ham β} : of_ham x = of_ham y ↔ x = y := iff.rfl
 
-lemma ham_dist_eq_zero_iff_eq : ham_dist x y = 0 ↔ x = y :=
+instance [Π i, has_zero (β i)] : has_zero (ham β) := pi.has_zero
+instance [Π i, has_add (β i)] : has_add (ham β) := pi.has_add
+instance [Π i, has_sub (β i)] : has_sub (ham β) := pi.has_sub
+instance [Π i, has_mul (β i)] : has_mul (ham β) := pi.has_mul
+instance [Π i, has_div (β i)] : has_div (ham β) := pi.has_div
+instance [Π i, add_group (β i)] : add_group (ham β) := pi.add_group
+instance [Π i, add_comm_group (β i)] : add_comm_group (ham β) := pi.add_comm_group
+instance [Π i, add_comm_monoid (β i)] : add_comm_monoid (ham β) := pi.add_comm_monoid
+
+instance [Π i, add_comm_monoid (β i)] [Π i, module α (β i)] : module α (ham β) := pi.module _ _ _
+
+def ham_dist (x y : ham β) := card {i // x i ≠ y i}
+
+instance : has_dist (ham β) := ⟨λ x y, ham_dist x y⟩
+
+@[simp, push_cast] lemma dist_eq_ham_dist (x y : ham β) : dist x y = ham_dist x y := rfl
+
+lemma ham_dist_eq (x y : ham β) : ham_dist x y = card {i // x i ≠ y i} := rfl
+
+@[simp] lemma ham_dist_self (x : ham β) : ham_dist x x = 0 := 
+by simp [ham_dist_eq, card_eq_zero_iff]; apply_instance
+
+lemma ham_dist_comm (x y : ham β) : ham_dist x y = ham_dist y x := 
+by simp_rw [ham_dist_eq, ne_comm]
+
+lemma ham_dist_triangle (x y z : ham β) : ham_dist x z ≤ ham_dist x y + ham_dist y z :=
 begin
-  split; intros h; [refine funext _, rw h]; [contrapose h, exact ham_dist_self_eq_zero _],
-  rw [ham_dist_eq, card_eq_zero, filter_eq_empty_iff],
-  simpa only [mem_univ, not_not, forall_true_left]
+  simp_rw ham_dist_eq, refine le_trans (card_subtype_le_of_imp _ _ (λ _ h, _))
+  (card_subtype_or _ _), contrapose! h, exact h.1.symm ▸ h.2
 end
 
-lemma ham_dist_pos_iff_neq : 0 < ham_dist x y ↔ x ≠ y :=
+lemma eq_of_ham_dist_eq_zero (x y : ham β) (h : ham_dist x y = 0) : x = y :=
 begin
-  rw [ne.def, ← ham_dist_eq_zero_iff_eq], split; intros h; 
-  [intro c, exact lt_of_le_of_ne (zero_le_ham_dist _ _) (ne.symm h)],
-  rw c at h, exact nat.not_lt_zero _ h
+  contrapose h, rw [←ne.def, function.ne_iff] at h, rcases h with ⟨i, hi⟩,
+  rw [ham_dist_eq, card_eq_zero_iff], exact λ H, H.elim' ⟨i, hi⟩
 end
 
-lemma ham_dist_le : ham_dist x y ≤ ham_dist x z + ham_dist z y :=
-begin
-  simp_rw ham_dist_eq,
-  refine le_trans (card_le_of_subset _) (card_union_le _ _),
-  intros i, simp_rw [mem_union, mem_filter],
-  simp only [mem_univ, ne.def, true_and], contrapose!,
-  exact λ ⟨_, _⟩, eq.trans (by assumption) (by assumption)
-end
+lemma ham_dist_eq_zero (x y : ham β) : ham_dist x y = 0 ↔ x = y :=
+⟨eq_of_ham_dist_eq_zero x y, λ h, h ▸ ham_dist_self _⟩
+
+lemma ham_dist_pos (x y : ham β) : 0 < ham_dist x y ↔ x ≠ y :=
+by rw [ne.def, ← ham_dist_eq_zero, decidable.iff_not_comm, not_lt, le_zero_iff]
+ 
+instance : metric_space (ham β) := 
+{ dist_self           := by push_cast; exact_mod_cast ham_dist_self,
+  dist_comm           := by push_cast; exact_mod_cast ham_dist_comm,
+  dist_triangle       := by push_cast; exact_mod_cast ham_dist_triangle,
+  eq_of_dist_eq_zero  := by push_cast; exact_mod_cast eq_of_ham_dist_eq_zero }
 
 section has_zero
-variable [has_zero K]
 
-def ham_wt : ℕ := ham_dist x 0
+variables [Π i, has_zero (β i)]
 
-@[simp]
-lemma ham_wt_eq : ham_wt x = (filter (λ i, x i ≠ 0) univ).card := ham_dist_eq _ _
+def ham_weight (x : ham β) : ℕ := ham_dist x 0
 
-lemma ham_wt_eq_sum_ite : ham_wt x = ∑ i, if x i ≠ 0 then 1 else 0 := ham_dist_eq_sum_ite _ _
+instance : has_norm (ham β) := ⟨λ x, ham_weight x⟩
 
-@[simp]
-lemma ham_wt_zero_eq_zero : ham_wt (0 : fin n → K) = 0 := ham_dist_self_eq_zero _
+@[simp, push_cast] lemma norm_eq_ham_weight (x : ham β) : ∥x∥ = ham_weight x := rfl
 
-lemma zero_le_ham_wt : 0 ≤ ham_wt x := zero_le_ham_dist _ _
+lemma ham_weight_eq (x : ham β) : ham_weight x = card {i // x i ≠ 0} := rfl
 
-lemma ham_wt_eq_zero_iff_zero : ham_wt x = 0 ↔ x = 0 := ham_dist_eq_zero_iff_eq _ _
+@[simp] lemma ham_weight_zero_eq_zero : ham_weight (0 : ham β) = 0 := 
+ham_dist_self _
 
-lemma ham_wt_pos_iff_neq : 0 < ham_wt x ↔ x ≠ 0 := ham_dist_pos_iff_neq _ _
+lemma zero_of_ham_weight_eq_zero (x : ham β) (h : ham_weight x = 0) : x = 0 := 
+eq_of_ham_dist_eq_zero _ _ h
+
+lemma ham_weight_eq_zero_iff_zero (x : ham β) : ham_weight x = 0 ↔ x = 0 := 
+ham_dist_eq_zero _ _
+
+lemma ham_weight_pos_iff_neq (x : ham β) : 0 < ham_weight x ↔ x ≠ 0 := 
+ham_dist_pos _ _
 
 end has_zero
 
-section add_group
-variable [add_group K]
+lemma ham_dist_eq_ham_weight_sub [Π i, add_group (β i)] (x y : ham β) : 
+ham_dist x y = ham_weight (x - y) :=
+by simp_rw [ham_dist_eq, ham_weight_eq, pi.sub_apply, sub_ne_zero]
 
-lemma ham_dist_eq_wt : ham_dist x y = ham_wt (x - y) :=
-by simp_rw [ham_dist_eq, ham_wt_eq, pi.sub_apply, sub_ne_zero]
+instance [Π i, add_comm_group (β i)] : normed_group (ham β) := 
+{ dist_eq := by push_cast; exact_mod_cast ham_dist_eq_ham_weight_sub }
 
-end add_group
-
-section mul_zero_class
-
-variables [mul_zero_class K] (t : K)
-
-lemma wt_smul_le : ham_wt (t • x) ≤ (if t ≠ 0 then 1 else 0) * (ham_wt x) :=
-begin
-  split_ifs,
-  { simp only [ ham_wt_eq, pi.smul_apply, smul_eq_mul, ne.def, one_mul],
-    refine card_le_of_subset (λ _, _), simp only [mem_filter, mem_univ, true_and],
-    exact right_ne_zero_of_mul },
-  { rw not_not at h, simp only [h, zero_smul, ham_wt_zero_eq_zero, zero_mul] }
-end
-
-end mul_zero_class
-
-end decidable_eq
 end hamming
-
-
-/-
-namespace discrete
-
-variables 
-
-def dist {K : Type*} [decidable_eq K] := λ x y : K, if x = y then (0 : ℝ) else 1
-
-@[simp]
-def dist_eq {K : Type*} [decidable_eq K] (x y : K) : dist x y = if x = y then 0 else 1 := rfl
-
-def pseudo_metric_space (K : Type*) [decidable_eq K] : pseudo_metric_space K := {
-  dist := discrete.dist,
-  dist_self := λ _, by simp [dist_eq],
-  dist_comm := λ x y, by simp_rw [dist, eq_comm],
-  dist_triangle := λ x y z,
-  by {  simp[dist], split_ifs;
-        try {simp only [  add_zero, zero_add, zero_le_one,
-                          one_add_one_eq_two, one_le_two, zero_le_two]},
-        finish }
-}
-
-
-def metric_space (K : Type*) [decidable_eq K] [has_zero K] : metric_space K :=
-{ ..(discrete.pseudo_metric_space K),
-  eq_of_dist_eq_zero := λ x y h, by { by_contradiction c, simp at h,
-                                      rw ite_eq_left_iff at h, exact one_ne_zero (h c) },
-
-  
-}
-
-instance [add_comm_group K] : normed_group K := {
-  norm := λ x, dist x 0,
-  dist_eq := λ x y, by simp_rw [dist, sub_eq_zero] }
-
-instance [non_unital_ring K] : non_unital_normed_ring K := {
-  norm_mul := begin  end,
-  }
-
-end discrete
-
-
-namespace fin
-
-
-
-instance : uniform_space (fin n) := ⊥
-
-noncomputable instance : has_dist (fin n) := ⟨λ x y, dist (x : ℝ) y⟩
-
-lemma dist_eq (x y : fin n) : dist x y = |x - y| := rfl
-
-lemma dist_coe_nat (x y : fin n) : dist (x : ℕ) (y : ℕ) = dist x y := rfl
-
-@[norm_cast, simp] theorem dist_cast_real {n : ℕ} (x y : (fin n)) : dist (x : ℝ) y = dist x y := rfl
-
-lemma pairwise_one_le_dist : pairwise (λ x y : fin n, 1 ≤ dist x y) :=
-begin
-  intros x y hxy,
-  rw ← dist_coe_nat,
-  apply nat.pairwise_one_le_dist,
-  contrapose! hxy,
-  apply fin.coe_injective hxy
-end
-open metric
-
-lemma uniform_embedding_coe_real : uniform_embedding (coe : (fin n) → ℝ) :=
-uniform_embedding_bot_of_pairwise_le_dist real.zero_lt_one pairwise_one_le_dist
-
-lemma closed_embedding_coe_real : closed_embedding (coe : (fin n) → ℝ) :=
-closed_embedding_of_pairwise_le_dist real.zero_lt_one pairwise_one_le_dist
-
-noncomputable instance : metric_space (fin n) := uniform_embedding_coe_real.comap_metric_space _
-
-lemma dist_0_eq {x : fin (n + 1)} (h : x ≤ n / 2) : dist x 0 = x := 
-begin
-  split_ifs; rw dist_eq; simp, norm_cast,
-end
-
-end fin
-
-variables (p : ℕ) [fact p.prime]
-instance : normed_field (zmod p) := {! !}
-end zmod
-def codeword (n : ℕ) := pi_Lp 1 (λ x : fin n, zmod 2)
-
-#check (0 : pi_Lp 1 (λ x : fin 3, zmod 2))
--/
-
-end coding_theory
