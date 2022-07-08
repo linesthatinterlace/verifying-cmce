@@ -10,24 +10,24 @@ structure linear_code {ι : Type*} (α : Type*) [semiring α] (β : ι → Type*
 
 namespace linear_code
 
-section finset_like
+section set_like
 
 variables {ι : Type*} {α : Type*} [semiring α] {β : ι → Type*}
 variables [Π i, add_comm_monoid (β i)] [Π i, module α (β i)]
 
-instance : finset_like (linear_code α β) (hamm β) :=
-⟨linear_code.codewords, λ C D h, by { cases C, cases D, congr' }⟩
+instance : set_like (linear_code α β) (hamm β) :=
+⟨coe ∘ linear_code.codewords, λ C D h, by { cases C, cases D, simpa [finset.coe_inj] using h }⟩
 
 @[simp] lemma mem_codewords {C : linear_code α β} {c : hamm β} : 
-  c ∈ C.codewords ↔ c ∈ (C : finset (hamm β)) := iff.rfl
+  c ∈ C.codewords ↔ c ∈ (C : set (hamm β)) := iff.rfl
 
-@[ext] theorem ext {C D : linear_code α β} (h : ∀ x, x ∈ C ↔ x ∈ D) : C = D := finset_like.ext h
+@[ext] theorem ext {C D : linear_code α β} (h : ∀ x, x ∈ C ↔ x ∈ D) : C = D := set_like.ext h
 
-/-- Copy of a `block_code` with a new `codewords` equal to the old one. Useful to fix definitional
+/-- Copy of a `linear_code` with a new `codewords` equal to the old one. Useful to fix definitional
 equalities. See Note [range copy pattern]. -/
-protected def copy (p : linear_code α β) (s : finset (hamm β)) (hs : s = ↑p) : linear_code α β :=
+protected def copy (p : linear_code α β) (s : finset (hamm β)) (hs : (s : set (hamm β)) = ↑p) : linear_code α β :=
 { codewords := s,
-  add_mem' := hs.symm ▸ p.add_mem',
+  add_mem' := begin simp_rw ← finset.mem_coe, simp_rw hs, simp, end,
   zero_mem' := hs.symm ▸ p.zero_mem',
   smul_mem' := hs.symm ▸ p.smul_mem' }
 
@@ -37,17 +37,12 @@ protected def copy (p : linear_code α β) (s : finset (hamm β)) (hs : s = ↑p
 lemma copy_eq (p : linear_code α β) (s : finset (hamm β)) (hs : s = ↑p) : p.copy s hs = p :=
 finset_like.coe_injective hs
 
-def size (C : linear_code α β) := (C : finset (hamm β)).card
-
-end finset_like
+end set_like
 
 open finset
 
 variables {ι : Type*} {α : Type*} [semiring α] {β : ι → Type*}
 variables [Π i, add_comm_monoid (β i)] [Π i, module α (β i)]
-
-instance : inhabited (linear_code α β) := ⟨⟨∅⟩⟩
-
 
 variables {ι : Type*} (α : Type*) [semiring α] (β : ι → Type*) 
 variables [Π i, add_comm_monoid (β i)] [Π i, module α (β i)] {C : linear_code α β}
