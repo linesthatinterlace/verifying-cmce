@@ -24,38 +24,32 @@ end degree_le
 
 namespace degree_lt
 
-noncomputable def to_tuple {R : Type*} [comm_ring R] {n : ℕ} (p : degree_lt R n) :
-fin n → R := degree_lt_equiv _ _ p
+noncomputable def to_tuple {R : Type*} [comm_ring R] {n : ℕ} {p : R[X]} (hp : p ∈ degree_lt R n) : fin n → R := degree_lt_equiv _ _ ⟨p, hp⟩
 
-lemma to_tuple_eq {R : Type*} [comm_ring R] {n : ℕ} (p : degree_lt R n) :
-to_tuple p = (degree_lt_equiv _ _) p := rfl
+lemma to_tuple_eq {R : Type*} [comm_ring R] {n : ℕ} {p : R[X]} (hp : p ∈ degree_lt R n)  :
+to_tuple hp = (degree_lt_equiv _ _) ⟨p, hp⟩ := rfl
 
-lemma to_tuple_apply {R : Type*} [comm_ring R] {n : ℕ} (p : degree_lt R n) (i : fin n) :
-to_tuple p i = (p : R[X]).coeff i := rfl
+lemma to_tuple_apply {R : Type*} [comm_ring R] {n : ℕ} {p : R[X]} (hp : p ∈ degree_lt R n)
+  (i : fin n) : to_tuple hp i = p.coeff i := rfl
 
-theorem to_tuple_eq_zero_iff {R : Type*} [comm_ring R] {n : ℕ} (p : degree_lt R n) :
-to_tuple p = 0 ↔ p = 0 := by rw [to_tuple_eq, linear_equiv.map_eq_zero_iff]
+theorem to_tuple_eq_zero_iff {R : Type*} [comm_ring R] {n : ℕ} {p : R[X]} (hp : p ∈ degree_lt R n) :
+  p = 0 ↔ to_tuple hp = 0 :=
+by {rw [to_tuple_eq, linear_equiv.map_eq_zero_iff, submodule.mk_eq_zero]}
 
-theorem to_tuple_eq_iff {R : Type*} [comm_ring R] {n : ℕ} (p q : degree_lt R n) :
-to_tuple p = to_tuple q ↔ p = q :=
+theorem to_tuple_eq_iff {R : Type*} [comm_ring R] {n : ℕ} {p q : R[X]}
+  (hp : p ∈ degree_lt R n) (hq : q ∈ degree_lt R n) : p = q ↔ to_tuple hp = to_tuple hq :=
 by {  simp_rw [to_tuple_eq, (linear_equiv.injective _).eq_iff] }
 
-theorem to_tuple_equiv_eval {R : Type*} [comm_ring R] {n : ℕ} (p : degree_lt R n) (x : R) :
-∑ i, to_tuple p i * (x ^ (i : ℕ)) = (p : R[X]).eval x :=
+theorem to_tuple_equiv_eval {R : Type*} [comm_ring R] {n : ℕ} {p : R[X]} (hp : p ∈ degree_lt R n)
+  (x : R) : p.eval x = ∑ i, to_tuple hp i * (x ^ (i : ℕ)) :=
 begin
   simp_rw [to_tuple_apply, eval_eq_sum],
-  exact sum_fin (λ e a, a * x ^ e) (λ i, zero_mul (x ^ i)) (mem_degree_lt.mp (coe_mem _))
+  rw ←sum_fin _ _ (mem_degree_lt.mp hp), simp_rw [zero_mul, forall_const]
 end
 
-theorem to_tuple_root {R : Type*} [comm_ring R] {n : ℕ} (p : degree_lt R n) (x : R) :
-(p : R[X]).is_root x ↔ ∑ i, to_tuple p i * (x ^ (i : ℕ)) = 0
+theorem to_tuple_root {R : Type*} [comm_ring R] {n : ℕ} {p : R[X]} (hp : p ∈ degree_lt R n)
+  (x : R) : p.is_root x ↔ ∑ i, to_tuple hp i * (x ^ (i : ℕ)) = 0
 := by rw [is_root.def, to_tuple_equiv_eval]
-
-/-
-theorem degree_lt_rank {F : Type*} [field F] {t : ℕ} : module.rank F (degree_lt F t) = t := by {rw (degree_lt_equiv' F t).dim_eq, exact dim_fin_fun _}
-
-theorem degree_lt_finrank {F : Type*} [field F] {t : ℕ} : finite_dimensional.finrank F (degree_lt F t) = t := finite_dimensional.finrank_eq_of_dim_eq degree_lt_rank
--/
 
 end degree_lt
 

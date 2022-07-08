@@ -7,7 +7,8 @@ import shared.polynomial.degree_lt_le
 import shared.linear_algebra.basic
 import shared.polynomial.vandermonde
 import shared.polynomial.misc
-
+import linear_algebra.dimension
+import algebra.big_operators.basic
 -- Section 2 (Polynomials)
 /-
 Much of this section is straightforwardly in mathlib. Imports are given (though
@@ -299,14 +300,22 @@ end polynomial
 -/
 
 section gdthree
-open_locale polynomial classical big_operators
+open_locale polynomial big_operators
 
 noncomputable theory
 
-open polynomial finset lagrange
+open polynomial fintype lagrange
 
-universes u v
-variables {F : Type u} [field F] (s : finset F)
+variables {F ι : Type*} [field F] [fintype ι] [decidable_eq ι] (α : ι ↪ F) (r : ι → F) (f : F[X])
+
+--3.1
+theorem three_one : (f.degree < card ι ∧ ∀ i, f.eval (α i) = r i) ↔ 
+f = ∑ i, C (r i) * (∏ j, ite (j ≠ i) (C ((α i) - (α j))⁻¹ * (X - C (α j)))) 1 := sorry
+
+-- 3.2 - "three_three is correct"
+-- 3.3 - an alternative construction of the interpolation. 
+-- We do not make complexity claims.
+-- 3.4 - no specific theorem
 
 def nodal : F[X] := ∏ y in s, (X - C y)
 
@@ -328,7 +337,7 @@ end
 lemma basis_eq_nodal_div_eval_deriv_mul_linear {x : F} (hx : x ∈ s) : basis s x = C (eval x (nodal s).derivative)⁻¹ * (nodal s / (X - C x))  :=
 begin
   rw lagrange.basis,
-  rw [nodal_div_eq _ hx, nodal_derive_eval_node_eq _ hx, prod_mul_distrib, ← prod_inv_distrib', map_prod],
+  rw [nodal_div_eq _ hx, nodal_derive_eval_node_eq _ hx, prod_mul_distrib, ← prod_inv_distrib, map_prod]
 end
 
 lemma interpolate_eq_derivative_interpolate (f : F → F) : interpolate s f = ∑ x in s, C (f x * (eval x (nodal s).derivative)⁻¹) * (nodal s / (X - C x)) :=
@@ -340,8 +349,7 @@ end
 /-- Lagrange interpolation: given a finset `s` and a function `f : F → F`,
 `interpolate s f` is the unique polynomial of degree `< s.card`
 that takes value `f x` on all `x` in `s`. -/
-def interpolate' (r : s → F) : F[X] :=
-∑ x : s, C (r x) * basis s x
+def interpolate' (r : s → F) : F[X] := ∑ x : s, C (r x) * basis s x
 
 end gdthree
 
@@ -407,4 +415,82 @@ begin
   simp_rw [dim_bot, add_zero]
 end
 
+--4.1
+theorem four_one (t : ℕ) {k : Type*} [field k] {A B : k[X]} (hAB : B.degree < A.degree) : ∃ a b : k[X], gcd a b = 1 ∧ a.degree ≤ t ∧ b.degree < t ∧ (a*B - b*A).degree + t < A.degree := sorry
+
+--4.2
+theorem four_two (t : ℕ) {k : Type*} [field k] {A B a b c d : k[X]} (hab : gcd a b = 1) (ha : a.degree ≤ t) (haBbA : (a*B - b*A).degree + t < A.degree) (hc : c.degree ≤ t) (hcBdA : (c*B - d*A).degree + t < A.degree) : ∃ p : k[X], c = p*a ∧ d = p*b := sorry
+
+-- 4.3 and 4.4: algorithm and proof of correctness,
+-- constructing a b from t, k, A,B.
+
+--  4.5 offers a different way to construct a, b. Complexity questions do not occupy us.
+
+-- 4.6 - "you can reformulate the above in terms of approximants"
+
+-- 4.7 - Defines approximants. Probably best to use (a version of) this in the above 
+-- theorems. Note the very general definition!
+
+-- 4.8 - History. Not relevant.
+
 end gdfour
+
+section gdfive
+
+-- 5.1 - Hamming weight. Implemented elsewhere.
+
+-- 5.2, 5.3 - an interpolation w/ errors algorithm
+
+-- 5.4 We can state this but not nicely. Basically a statement about approximants!
+
+-- 5.5 Seems to be the contrapositive of 5.4 to some degree?
+
+-- 5.6 Could be tricky because formally needs the power series object.
+
+-- 5.7 Links the above to R-S codes.
+
+-- 5.8 Defines R-S codes.
+
+-- 5.9 Extensive history
+
+end gdfive
+
+section gdsix
+
+-- 6.1, 6.2 Algorithm
+
+-- 6.3 Goppa square codes.
+
+-- 6.4 Goppa decoding works
+
+-- 6.5 How to check Goppa decoding
+
+-- 6.6 mostly just remarks?
+
+end gdsix
+
+section gdseven
+
+-- 7.1 Overview
+
+-- 7.2 Looks like a horrible proof and might need 5.6
+
+-- 7.3 Getting increasingly hard to see what is being claimed.
+
+-- 7.4 Checking Goppa decoding for F2_^n
+
+end gdseven
+
+section gdeight
+
+-- 8.1 CMcE ciphertexts
+
+-- 8.2 CMcE decryption
+
+-- 8.3 "Rigidity", not defined, but is about recognising valid inputs.
+
+-- 8.4 comment about robust system design
+
+-- 8.5 history
+
+end gdeight

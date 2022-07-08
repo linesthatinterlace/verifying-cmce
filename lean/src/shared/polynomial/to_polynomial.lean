@@ -21,7 +21,7 @@ section ring
 variables [ring K] 
 
 @[simp]
-lemma X_sub_C_derivative : (X - C a).derivative = 1 :=
+lemma derivative_X_sub_C : (X - C a).derivative = 1 :=
 by simp only [derivative_sub, derivative_X, derivative_C, sub_zero]
 
 end ring
