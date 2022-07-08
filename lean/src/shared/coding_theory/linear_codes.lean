@@ -9,6 +9,7 @@ structure linear_code {ι : Type*} (α : Type*) [semiring α] (β : ι → Type*
 (smul_mem' : ∀ (c : α) {a}, a ∈ codewords → c • a ∈ codewords)
 
 namespace linear_code
+open finset function
 
 section set_like
 
@@ -18,40 +19,50 @@ variables [Π i, add_comm_monoid (β i)] [Π i, module α (β i)]
 instance : set_like (linear_code α β) (hamm β) :=
 ⟨coe ∘ linear_code.codewords, λ C D h, by { cases C, cases D, simpa [finset.coe_inj] using h }⟩
 
-@[simp] lemma mem_codewords {C : linear_code α β} {c : hamm β} : 
-  c ∈ C.codewords ↔ c ∈ (C : set (hamm β)) := iff.rfl
+instance : has_coe_t (linear_code α β) (finset (hamm β)) := ⟨linear_code.codewords⟩
+
+@[simp, norm_cast] lemma mem_coe {c : hamm β} {C : linear_code α β} : 
+  c ∈ (C : finset (hamm β)) ↔ c ∈ C := iff.rfl
+
+@[simp] lemma coe_mem {C : linear_code α β} (x : (C : finset (hamm β))) : ↑x ∈ C := x.2
+
+@[simp] lemma mk_coe {C : linear_code α β} (x : (C : finset (hamm β))) {h} :
+  (⟨x, h⟩ : (C : finset (hamm β))) = x := subtype.coe_eta _ _
+
+instance decidable_mem [fintype ι] [Π i, decidable_eq (β i)] (c : hamm β) (C : linear_code α β) :
+  decidable (c ∈ C) := finset.decidable_mem' _ _
 
 @[ext] theorem ext {C D : linear_code α β} (h : ∀ x, x ∈ C ↔ x ∈ D) : C = D := set_like.ext h
 
+@[simp, norm_cast] theorem coe_inj {s₁ s₂ : linear_code α β} :
+  (s₁ : finset (hamm β)) = s₂ ↔ s₁ = s₂ := by simp_rw [finset.ext_iff, set_like.ext_iff, mem_coe]
+
+lemma coe_injective : function.injective (coe : linear_code α β → (finset (hamm β))) := 
+λ s t, coe_inj.1
+
 /-- Copy of a `linear_code` with a new `codewords` equal to the old one. Useful to fix definitional
 equalities. See Note [range copy pattern]. -/
-protected def copy (p : linear_code α β) (s : finset (hamm β)) (hs : (s : set (hamm β)) = ↑p) : linear_code α β :=
+protected def copy (p : linear_code α β) (s : finset (hamm β)) (hs : s = p) : 
+  linear_code α β :=
 { codewords := s,
-  add_mem' := begin simp_rw ← finset.mem_coe, simp_rw hs, simp, end,
+  add_mem' := hs.symm ▸ p.add_mem',
   zero_mem' := hs.symm ▸ p.zero_mem',
   smul_mem' := hs.symm ▸ p.smul_mem' }
 
-@[simp] lemma coe_copy (p : linear_code α β) (s : finset (hamm β)) (hs : s = ↑p) :
+@[simp] lemma coe_copy (p : linear_code α β) (s : finset (hamm β)) (hs : s = p) :
   (p.copy s hs : finset (hamm β)) = s := rfl
 
 lemma copy_eq (p : linear_code α β) (s : finset (hamm β)) (hs : s = ↑p) : p.copy s hs = p :=
-finset_like.coe_injective hs
+coe_injective hs
 
 end set_like
 
-open finset
-
 variables {ι : Type*} {α : Type*} [semiring α] {β : ι → Type*}
-variables [Π i, add_comm_monoid (β i)] [Π i, module α (β i)]
-
-variables {ι : Type*} (α : Type*) [semiring α] (β : ι → Type*) 
 variables [Π i, add_comm_monoid (β i)] [Π i, module α (β i)] {C : linear_code α β}
 
 protected lemma zero_mem : (0 : hamm β) ∈ C := C.zero_mem'
-protected lemma add_mem {a b} (ha : a ∈ C) (hb : b ∈ C) : 
-  a + b ∈ C := C.add_mem' ha hb
-protected lemma smul_mem (r : α) {a} (ha : a ∈ C) : r • a ∈ C :=
-C.smul_mem' _ ha
+protected lemma add_mem {a b} (ha : a ∈ C) (hb : b ∈ C) : a + b ∈ C := C.add_mem' ha hb
+protected lemma smul_mem (r : α) {a} (ha : a ∈ C) : r • a ∈ C := C.smul_mem' _ ha
 
 instance : inhabited (linear_code α β) := 
 ⟨ { codewords := {0},
@@ -60,11 +71,16 @@ instance : inhabited (linear_code α β) :=
     smul_mem' := by { simp_rw mem_singleton, rintros _ _ rfl, exact smul_zero _ } } ⟩
 
 def to_submodule : submodule α (hamm β) := 
-{ codewords := C.codewords,
-  add_mem' := begin refine λ _ _ _ _, _, refine C.add_mem _ _, end ,
-  zero_mem' := _,
-  smul_mem' := _ }
+{ carrier := C,
+  add_mem' := λ _ _, linear_code.add_mem,
+  zero_mem' := linear_code.zero_mem,
+  smul_mem' := λ _ _, linear_code.smul_mem _ }
+
+noncomputable def of_submodule {C : submodule α (hamm β)} (hC : C.carrier.finite) :    
+  linear_code α β :=
+{ codewords := hC.to_finset,
+  add_mem' := λ _ _, by { simp_rw set.finite.mem_to_finset, exact C.add_mem },
+  zero_mem' := by { simp_rw set.finite.mem_to_finset, exact C.zero_mem },
+  smul_mem' := λ _ _, by { simp_rw set.finite.mem_to_finset, exact C.smul_mem _ } }
 
 end linear_code
-
-#lint

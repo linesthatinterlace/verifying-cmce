@@ -8,9 +8,11 @@ instance decidable_nonempty (α : Type*) (s : finset α) : decidable (s.nonempty
 decidable_of_iff (0 < s.card) card_pos
 end finset
 
-structure block_code {ι : Type*} (β : ι → Type*) := (codewords : finset (hamm β))
+structure block_code {ι : Type*} (β : ι → Type*) := 
+(codewords : finset (hamm β))
 
 namespace block_code
+open finset function
 
 section set_like
 
@@ -19,33 +21,46 @@ variables {ι : Type*} {β : ι → Type*} {c : hamm β}
 instance : set_like (block_code β) (hamm β) :=
 ⟨coe ∘ block_code.codewords, λ C D h, by { cases C, cases D, simpa [finset.coe_inj] using h }⟩
 
-@[simp] lemma mem_codewords {C : block_code β} : c ∈ C.codewords ↔ c ∈ (C : set (hamm β))
-:= iff.rfl
+instance : has_coe_t (block_code β) (finset (hamm β)) := ⟨block_code.codewords⟩
+
+@[simp, norm_cast] lemma mem_coe {c : hamm β} {C : block_code β} : 
+  c ∈ (C : finset (hamm β)) ↔ c ∈ C := iff.rfl
+
+@[simp] lemma coe_mem {C : block_code β} (x : (C : finset (hamm β))) : ↑x ∈ C := x.2
+
+@[simp] lemma mk_coe {C : block_code β} (x : (C : finset (hamm β))) {h} :
+  (⟨x, h⟩ : (C : finset (hamm β))) = x := subtype.coe_eta _ _
+
+instance decidable_mem [fintype ι] [Π i, decidable_eq (β i)] (c : hamm β) (C : block_code β) :
+  decidable (c ∈ C) := finset.decidable_mem' _ _
 
 @[ext] theorem ext {C D : block_code β} (h : ∀ x, x ∈ C ↔ x ∈ D) : C = D := set_like.ext h
+
+@[simp, norm_cast] theorem coe_inj {s₁ s₂ : block_code β} : (s₁ : finset (hamm β)) = s₂ ↔ s₁ = s₂ :=
+by simp_rw [finset.ext_iff, set_like.ext_iff, mem_coe]
+
+lemma coe_injective : injective (coe : block_code β → (finset (hamm β))) := λ s t, coe_inj.1
 
 end set_like
 
 section main
 
-open finset
-
 variables {ι : Type*} {β : ι → Type*}
 
 instance : inhabited (block_code β) := ⟨⟨∅⟩⟩
 
-def size (C : block_code β) := C.codewords.card
+def size (C : block_code β) := (C : finset (hamm β)).card
 
 variables [fintype ι] [Π i, decidable_eq (β i)] {C : block_code β}
 
-def nontrivial (C : block_code β) : Prop := C.codewords.off_diag.nonempty
+def nontrivial (C : block_code β) : Prop := (C : finset (hamm β)).off_diag.nonempty
 
 instance : decidable (C.nontrivial) := 
 decidable_of_iff C.codewords.off_diag.nonempty iff.rfl
 
 lemma nontrivial_iff_exists_distinct : C.nontrivial ↔ ∃ x y ∈ C, x ≠ y :=
 by simp_rw [  nontrivial, nonempty_iff_ne_empty, ne.def, ext_iff, mem_off_diag,
-              mem_codewords, set_like.mem_coe, not_mem_empty, iff_false, not_and,
+              mem_coe, not_mem_empty, iff_false, not_and,
               not_not, not_forall, exists_prop, prod.exists, exists_and_distrib_left ]
 
 lemma trivial_iff_forall_eq : ¬ C.nontrivial ↔ ∀ x y ∈ C, x = y :=
