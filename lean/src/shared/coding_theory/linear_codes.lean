@@ -24,11 +24,6 @@ instance : has_coe_t (linear_code α β) (finset (hamm β)) := ⟨linear_code.co
 @[simp, norm_cast] lemma mem_coe {c : hamm β} {C : linear_code α β} : 
   c ∈ (C : finset (hamm β)) ↔ c ∈ C := iff.rfl
 
-@[simp] lemma coe_mem {C : linear_code α β} (x : (C : finset (hamm β))) : ↑x ∈ C := x.2
-
-@[simp] lemma mk_coe {C : linear_code α β} (x : (C : finset (hamm β))) {h} :
-  (⟨x, h⟩ : (C : finset (hamm β))) = x := subtype.coe_eta _ _
-
 instance decidable_mem [fintype ι] [Π i, decidable_eq (β i)] (c : hamm β) (C : linear_code α β) :
   decidable (c ∈ C) := finset.decidable_mem' _ _
 
@@ -55,6 +50,8 @@ protected def copy (p : linear_code α β) (s : finset (hamm β)) (hs : s = p) :
 lemma copy_eq (p : linear_code α β) (s : finset (hamm β)) (hs : s = ↑p) : p.copy s hs = p :=
 coe_injective hs
 
+lemma coe_coe {C : linear_code α β} : ((C : finset (hamm β)) : set (hamm β)) = C := rfl
+
 end set_like
 
 variables {ι : Type*} {α : Type*} [semiring α] {β : ι → Type*}
@@ -76,11 +73,18 @@ def to_submodule : submodule α (hamm β) :=
   zero_mem' := linear_code.zero_mem,
   smul_mem' := λ _ _, linear_code.smul_mem _ }
 
-noncomputable def of_submodule {C : submodule α (hamm β)} (hC : C.carrier.finite) :    
+noncomputable def of_submodule {C : submodule α (hamm β)} (hC : (C : set (hamm β)).finite) :    
   linear_code α β :=
 { codewords := hC.to_finset,
   add_mem' := λ _ _, by { simp_rw set.finite.mem_to_finset, exact C.add_mem },
   zero_mem' := by { simp_rw set.finite.mem_to_finset, exact C.zero_mem },
   smul_mem' := λ _ _, by { simp_rw set.finite.mem_to_finset, exact C.smul_mem _ } }
+
+lemma mem_of_mem_of_submodule {C : submodule α (hamm β)} (hC : (C : set (hamm β)).finite)
+  (x : hamm β) : x ∈ C ↔ x ∈ of_submodule hC :=
+begin
+  rw of_submodule, cases C, simp only [submodule.mem_mk], rw set_like.has_mem, 
+end
+
 
 end linear_code

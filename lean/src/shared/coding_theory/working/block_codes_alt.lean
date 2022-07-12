@@ -12,13 +12,14 @@ end finset
 namespace coding
 
 open finset function
-variables {ι S : Type*} {β : ι → Type*} [i : finset_like S (hamming β)] {C C' : S}
+variables {ι : Type*} {β : ι → Type*} {s s' : finset (hamming β)} {c : hamming β} 
+{S : Type*} {C C' : S} [i : finset_like S (hamming β)]
 
 include i
 
 @[reducible] def codewords (C : S) := (C : finset (hamming β))
 
-lemma mem_codewords {c : hamming β} : c ∈ codewords C ↔ c ∈ C := finset_like.mem_coe
+lemma mem_codewords : c ∈ codewords C ↔ c ∈ C := finset_like.mem_coe
 
 lemma codewords_eq_coe : (codewords : S → finset (hamming β)) = coe := rfl
 
@@ -136,4 +137,11 @@ def equiv_finset : block_code β ≃ finset (hamming β) :=
   left_inv := λ C, by { cases C, refl },
   right_inv := λ _, rfl }
 
+variables [fintype ι] [Π i, decidable_eq (β i)] {C : block_code β}
+open coding
+
+#check codewords C
+
 end block_code
+
+#lint

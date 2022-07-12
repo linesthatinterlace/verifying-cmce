@@ -1,8 +1,8 @@
 [package]
 name = "cmce"
 version = "0.1"
-lean_version = "leanprover-community/lean:3.42.1"
+lean_version = "leanprover-community/lean:3.44.1"
 path = "src"
 
 [dependencies]
-mathlib = {git = "https://github.com/leanprover-community/mathlib", rev = "6e0e270d7426835d09f73a140f0f986d748b8db6"}
+mathlib = {git = "https://github.com/leanprover-community/mathlib", rev = "b7148c4ee72c7b653fe77893ffceafb193ed630d"}
