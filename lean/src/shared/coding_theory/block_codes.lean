@@ -12,7 +12,7 @@ end finset
 namespace coding
 
 open finset function
-variables {ι S : Type*} {β : ι → Type*} [i : finset_like S (hamming β)] {C C' : S}
+variables {A : Type*} [i : finset_like S A] {C C' : S}
 
 include i
 
@@ -115,11 +115,13 @@ lemma min_dist_eq_succ_iff_exists_eq_forall_lt_dist {d : ℕ} :
 
 end coding
 
-structure block_code {ι : Type*} (β : ι → Type*) := (carrier : finset (hamming β))
+notation 𝓗[A, n] := (hamming (function.const A (fin n)))
+
+structure block_code {n : ℕ} (A : Type*) := (carrier : finset (hamming (function.const A (fin n))))
 
 namespace block_code
 
-variables {ι : Type*} {β : ι → Type*} {c : hamming β}
+variables {n : ℕ} {A : Type*} {c : hamming β}
 
 instance : finset_like (block_code β) (hamming β) :=
 ⟨block_code.carrier, λ C D h, by { cases C, cases D, congr' }⟩
