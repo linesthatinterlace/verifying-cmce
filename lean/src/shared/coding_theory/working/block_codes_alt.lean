@@ -12,13 +12,14 @@ end finset
 namespace coding
 
 open finset function
-variables {A : Type*} [i : finset_like S A] {C C' : S}
+variables {ι : Type*} {β : ι → Type*} {s s' : finset (hamming β)} {c : hamming β} 
+{S : Type*} {C C' : S} [i : finset_like S (hamming β)]
 
 include i
 
 @[reducible] def codewords (C : S) := (C : finset (hamming β))
 
-lemma mem_codewords {c : hamming β} : c ∈ codewords C ↔ c ∈ C := finset_like.mem_coe
+lemma mem_codewords : c ∈ codewords C ↔ c ∈ C := finset_like.mem_coe
 
 lemma codewords_eq_coe : (codewords : S → finset (hamming β)) = coe := rfl
 
@@ -115,13 +116,11 @@ lemma min_dist_eq_succ_iff_exists_eq_forall_lt_dist {d : ℕ} :
 
 end coding
 
-notation 𝓗[A, n] := (hamming (function.const A (fin n)))
-
-structure block_code {n : ℕ} (A : Type*) := (carrier : finset (hamming (function.const A (fin n))))
+structure block_code {ι : Type*} (β : ι → Type*) := (carrier : finset (hamming β))
 
 namespace block_code
 
-variables {n : ℕ} {A : Type*} {c : hamming β}
+variables {ι : Type*} {β : ι → Type*} {c : hamming β}
 
 instance : finset_like (block_code β) (hamming β) :=
 ⟨block_code.carrier, λ C D h, by { cases C, cases D, congr' }⟩
@@ -138,4 +137,11 @@ def equiv_finset : block_code β ≃ finset (hamming β) :=
   left_inv := λ C, by { cases C, refl },
   right_inv := λ _, rfl }
 
+variables [fintype ι] [Π i, decidable_eq (β i)] {C : block_code β}
+open coding
+
+#check codewords C
+
 end block_code
+
+#lint
