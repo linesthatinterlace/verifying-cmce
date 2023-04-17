@@ -1,0 +1,6 @@
+/home/wrobson/projects/verifying-cmce/rust/controlbits/target/debug/deps/permutation-0fb277ccf7800cde.rmeta: /home/wrobson/.cargo/registry/src/github.com-1ecc6299db9ec823/permutation-0.4.1/src/lib.rs /home/wrobson/.cargo/registry/src/github.com-1ecc6299db9ec823/permutation-0.4.1/src/permutation.rs
+
+/home/wrobson/projects/verifying-cmce/rust/controlbits/target/debug/deps/permutation-0fb277ccf7800cde.d: /home/wrobson/.cargo/registry/src/github.com-1ecc6299db9ec823/permutation-0.4.1/src/lib.rs /home/wrobson/.cargo/registry/src/github.com-1ecc6299db9ec823/permutation-0.4.1/src/permutation.rs
+
+/home/wrobson/.cargo/registry/src/github.com-1ecc6299db9ec823/permutation-0.4.1/src/lib.rs:
+/home/wrobson/.cargo/registry/src/github.com-1ecc6299db9ec823/permutation-0.4.1/src/permutation.rs:

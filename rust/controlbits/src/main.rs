@@ -72,14 +72,15 @@ fn get_permutation_exponent(pi: Permutation) -> Option<usize> {
 }
 
 fn permutation(c: ControlBits) -> Permutation {
-    let m = get_controlbits_exponent(c)?;
+    let l = c.len();
+    let m = c.exp;
     let mut pi: Vec<_> = (0..(1 << m)).collect();
-    permute_using(&mut pi, c)?;
-    Ok(pi)
+    c.apply_slice(&mut pi);
+    pi
 }
 
 fn composeinv<T: Copy>(c: &[T], pi: &[usize]) -> Result<Vec<T>, SimpleError> {
-    let n = get_permutation_length(pi)?;
+    let n = pi.len();
     if n == c.len() {
         let mut s: Vec<_> = pi.iter().zip(c.iter()).collect();
         s.sort_unstable_by_key(|(&a, _)| a);
@@ -93,7 +94,7 @@ fn composeinv<T: Copy>(c: &[T], pi: &[usize]) -> Result<Vec<T>, SimpleError> {
 }
 
 fn permute_ind_nct<T: Copy>(c: &[T], pi: &[usize]) -> Result<Vec<T>, SimpleError> {
-    let n = get_permutation_length(pi)?;
+    let n = pi.len();
     if n != c.len() {
         return Err(SimpleError::new(
             "Permutation length does not match length of permuted vector",
@@ -113,7 +114,7 @@ fn inverse_nct(pi: &[usize]) -> Vec<usize> {
 }
 
 fn permute_inv_ind_nct<T: Copy>(c: &[T], pi: &[usize]) -> Result<Vec<T>, SimpleError> {
-    let n = get_permutation_length(pi)?;
+    let n = pi.len();
     if n != c.len() {
         return Err(SimpleError::new(
             "Permutation length does not match length of permuted vector",
