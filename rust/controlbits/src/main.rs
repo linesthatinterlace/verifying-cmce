@@ -1,9 +1,9 @@
 //#![deny(clippy::pedantic)]
 pub use permutation::Permutation;
-use std::cmp::min;
+use std::cmp::{min, Ordering};
 use std::iter::zip;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ControlBits {
     exp: usize,
     bits: Vec<bool>,
@@ -23,10 +23,7 @@ impl ControlBits {
     {
         let bits = bv.into();
         let len = bits.len();
-        let mut exp = 0;
-        while (2 * exp + 1) << exp <= len {
-            exp += 1;
-        }
+        let exp = (0..).find(|&exp| (2 * exp + 1) << exp > len).unwrap_or(0);
         let result = ControlBits { exp, bits };
         debug_assert!(result.valid());
 
@@ -86,6 +83,26 @@ impl ControlBits {
         let mut result: Vec<T> = s.to_vec();
         self.apply_inv_slice_in_place(&mut result);
         result
+    }
+
+    pub fn interleve(&self, c: &ControlBits) -> ControlBits {
+        let bits = self
+            .bits
+            .iter()
+            .zip(c.bits.clone())
+            .flat_map(|(&a, b)| [a, b])
+            .collect();
+        let exp = min(self.exp, c.exp) + 1;
+        ControlBits { exp, bits }
+    }
+}
+
+impl IntoIterator for ControlBits {
+    type Item = bool;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.bits.into_iter()
     }
 }
 
@@ -162,8 +179,9 @@ fn flm_decomp(pi: &Permutation) -> FlmDecomp {
     (f_result, m_perm, l_result)
 }
 
+/*
 #[must_use]
-pub fn controlbits(pi_init: Permutation) -> ControlBits {
+fn controlbits_stack(pi_init: Permutation) -> ControlBits {
     let m_init = get_permutation_exponent(&pi_init).unwrap();
     let mut control_bits: Vec<bool> = Vec::with_capacity((2 * m_init - 1) << (m_init - 1));
     control_bits.resize((2 * m_init - 1) << (m_init - 1), false);
@@ -200,16 +218,53 @@ pub fn controlbits(pi_init: Permutation) -> ControlBits {
     }
     ControlBits::from_bits(control_bits)
 }
+ */
+#[must_use]
+fn controlbits_recur(pi: Permutation) -> ControlBits {
+    let pi = pi.normalize(false);
+    let m = get_permutation_exponent(&pi).unwrap();
+    match m.cmp(&1) {
+        Ordering::Less => ControlBits::from_bits(vec![]),
+        Ordering::Equal => ControlBits::from_bits(vec![pi.apply_idx(0) != 0]),
+        Ordering::Greater => {
+            let (first_bits, middle_perm, last_bits) = flm_decomp(&pi);
+            let middle_perm = middle_perm.normalize(false);
+            let even_indices = (0..1 << m)
+                .step_by(2)
+                .map(|x| middle_perm.apply_idx(x) >> 1);
+            let odd_indices = (0..1 << m)
+                .skip(1)
+                .step_by(2)
+                .map(|x| middle_perm.apply_idx(x) >> 1);
+            let even_perm = Permutation::oneline(even_indices.collect::<Vec<usize>>());
+            let odd_perm = Permutation::oneline(odd_indices.collect::<Vec<usize>>());
+            let middle_bits = controlbits_recur(even_perm)
+                .into_iter()
+                .zip(controlbits_recur(odd_perm))
+                .flat_map(|(a, b)| [a, b]);
+            let bits: Vec<_> = first_bits
+                .into_iter()
+                .chain(middle_bits)
+                .chain(last_bits)
+                .collect();
+            ControlBits::from_bits(bits)
+        }
+    }
+}
+
+pub fn controlbits(pi_init: Permutation) -> ControlBits {
+    controlbits_recur(pi_init)
+}
 
 fn main() {
     let c1 = ControlBits::from_bits(vec![false, false, true, false, true, false]);
-    println!("c1: {c1:?}");
+    //println!("c1: {c1:?}");
     let c2 = controlbits(permutation(&c1));
 
-    println!("c2: {c2:?}");
+    //println!("c2: {c2:?}");
 
     let p1 = Permutation::oneline(vec![2, 3, 1, 0]);
-    println!("p1: {p1:?}");
+    //println!("p1: {p1:?}");
     let p2 = permutation(&controlbits(p1));
-    println!("p2: {p2:?}");
+    //println!("p2: {p2:?}");
 }
