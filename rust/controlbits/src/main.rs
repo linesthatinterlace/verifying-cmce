@@ -3,7 +3,7 @@ pub use permutation::Permutation;
 use std::cmp::{min, Ordering};
 use std::iter::zip;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct ControlBits {
     exp: usize,
     bits: Vec<bool>,
@@ -179,7 +179,6 @@ fn flm_decomp(pi: &Permutation) -> FlmDecomp {
     (f_result, m_perm, l_result)
 }
 
-/*
 #[must_use]
 fn controlbits_stack(pi_init: Permutation) -> ControlBits {
     let m_init = get_permutation_exponent(&pi_init).unwrap();
@@ -218,16 +217,15 @@ fn controlbits_stack(pi_init: Permutation) -> ControlBits {
     }
     ControlBits::from_bits(control_bits)
 }
- */
+
 #[must_use]
-fn controlbits_recur(pi: Permutation) -> ControlBits {
-    let pi = pi.normalize(false);
-    let m = get_permutation_exponent(&pi).unwrap();
+fn controlbits_recur(pi: &Permutation) -> ControlBits {
+    let m = get_permutation_exponent(pi).unwrap();
     match m.cmp(&1) {
         Ordering::Less => ControlBits::from_bits(vec![]),
         Ordering::Equal => ControlBits::from_bits(vec![pi.apply_idx(0) != 0]),
         Ordering::Greater => {
-            let (first_bits, middle_perm, last_bits) = flm_decomp(&pi);
+            let (first_bits, middle_perm, last_bits) = flm_decomp(pi);
             let middle_perm = middle_perm.normalize(false);
             let even_indices = (0..1 << m)
                 .step_by(2)
@@ -238,9 +236,9 @@ fn controlbits_recur(pi: Permutation) -> ControlBits {
                 .map(|x| middle_perm.apply_idx(x) >> 1);
             let even_perm = Permutation::oneline(even_indices.collect::<Vec<usize>>());
             let odd_perm = Permutation::oneline(odd_indices.collect::<Vec<usize>>());
-            let middle_bits = controlbits_recur(even_perm)
+            let middle_bits = controlbits_recur(&even_perm)
                 .into_iter()
-                .zip(controlbits_recur(odd_perm))
+                .zip(controlbits_recur(&odd_perm))
                 .flat_map(|(a, b)| [a, b]);
             let bits: Vec<_> = first_bits
                 .into_iter()
@@ -252,19 +250,16 @@ fn controlbits_recur(pi: Permutation) -> ControlBits {
     }
 }
 
-pub fn controlbits(pi_init: Permutation) -> ControlBits {
+pub fn controlbits(pi_init: &Permutation) -> ControlBits {
+    /* let p = pi_init.clone();
+    controlbits_stack(p)
+    */
     controlbits_recur(pi_init)
 }
 
 fn main() {
     let c1 = ControlBits::from_bits(vec![false, false, true, false, true, false]);
-    //println!("c1: {c1:?}");
-    let c2 = controlbits(permutation(&c1));
-
-    //println!("c2: {c2:?}");
-
+    assert!(c1 == controlbits(&permutation(&c1)));
     let p1 = Permutation::oneline(vec![2, 3, 1, 0]);
-    //println!("p1: {p1:?}");
-    let p2 = permutation(&controlbits(p1));
-    //println!("p2: {p2:?}");
+    assert!(p1 == permutation(&controlbits(&p1)));
 }
