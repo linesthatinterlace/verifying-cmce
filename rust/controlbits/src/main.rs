@@ -1,8 +1,8 @@
-//#![deny(clippy::pedantic)]
+#![deny(clippy::pedantic)]
 pub use permutation::Permutation;
 use std::cmp::{min, Ordering};
+use std::iter::repeat;
 use std::iter::zip;
-
 #[derive(Clone, PartialEq)]
 pub struct ControlBits {
     exp: usize,
@@ -17,24 +17,29 @@ impl ControlBits {
         (exp == 0 && len == 0) || len == (2 * exp - 1) << (exp - 1)
     }
 
-    pub fn from_bits<V>(bv: V) -> ControlBits
+    /// Converts a bitvector into a packaged `ControlBits` representation, checking its validity
+    /// against a specified size.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `exp` is not compatible with the size of bv.
+    pub fn from_bits<V>(bv: V, exp: usize) -> ControlBits
     where
         V: Into<Vec<bool>>,
     {
         let bits = bv.into();
-        let len = bits.len();
-        let exp = (0..).find(|&exp| (2 * exp + 1) << exp > len).unwrap_or(0);
         let result = ControlBits { exp, bits };
-        debug_assert!(result.valid());
+        assert!(result.valid());
 
         result
     }
+
     #[must_use]
     pub fn inverse(&self) -> ControlBits {
         let exp = self.exp;
         let mut bits = Vec::new();
-        for chunk in self.bits.chunks(1 << (exp - 1)).rev() {
-            bits.extend_from_slice(chunk);
+        for chunk in self.bits.rchunks(1 << (exp - 1)) {
+            bits.extend(chunk);
         }
         ControlBits { exp, bits }
     }
@@ -55,7 +60,7 @@ impl ControlBits {
     pub fn apply_inv_slice_in_place<T>(&self, a: &mut [T]) {
         let m = self.exp;
         let gaps = (0..m).chain((0..(m - 1)).rev());
-        for (ch, gap) in self.bits.chunks(1 << (m - 1)).rev().zip(gaps) {
+        for (ch, gap) in self.bits.rchunks(1 << (m - 1)).zip(gaps) {
             for (j, &b) in ch.iter().enumerate() {
                 if b {
                     let pos: usize = j + ((j >> gap) << gap);
@@ -85,15 +90,18 @@ impl ControlBits {
         result
     }
 
-    pub fn interleve(&self, c: &ControlBits) -> ControlBits {
-        let bits = self
-            .bits
-            .iter()
-            .zip(c.bits.clone())
-            .flat_map(|(&a, b)| [a, b])
-            .collect();
-        let exp = min(self.exp, c.exp) + 1;
-        ControlBits { exp, bits }
+    #[must_use]
+    pub fn interleve(&self, c: &ControlBits) -> Option<ControlBits> {
+        (self.exp == c.exp).then_some({
+            let bits = self
+                .bits
+                .iter()
+                .zip(c.bits.iter())
+                .flat_map(|(&a, &b)| [a, b])
+                .collect();
+            let exp = self.exp + 1;
+            ControlBits { exp, bits }
+        })
     }
 }
 
@@ -106,11 +114,13 @@ impl IntoIterator for ControlBits {
     }
 }
 
-fn permutation(c: &ControlBits) -> Permutation {
-    let m = c.exp;
-    let mut pi: Vec<_> = (0..(1 << m)).collect();
-    c.apply_slice_in_place(&mut pi);
-    Permutation::oneline(pi)
+impl From<&ControlBits> for Permutation {
+    fn from(cb: &ControlBits) -> Permutation {
+        let m = cb.exp;
+        let pi: Vec<_> = (0..(1 << m)).collect();
+        let v = cb.apply_slice(pi);
+        Permutation::oneline(v)
+    }
 }
 
 fn get_permutation_exponent(pi: &Permutation) -> Option<usize> {
@@ -118,73 +128,68 @@ fn get_permutation_exponent(pi: &Permutation) -> Option<usize> {
     n.is_power_of_two().then_some(n.trailing_zeros() as usize)
 }
 
-fn xor_perm(half_len: usize) -> Permutation {
-    let indices: Vec<_> = (0..half_len)
-        .flat_map(|i| {
-            let n = i << 1;
-            [n + 1, n]
-        })
-        .collect();
-    Permutation::oneline(indices)
-}
-
-fn cyclemin_pibar(pi: Permutation) -> Vec<usize> {
-    let pi = pi.normalize(true);
-    let m = get_permutation_exponent(&pi).unwrap();
-    let xor = xor_perm(1 << (m - 1));
-    let mut c: Vec<usize> = (0..(1 << m)).collect();
-    let mut pow_pibar = &(&pi * &xor) * &(&pi.inverse() * &xor);
-    for _ in 0..m {
-        let cp = pow_pibar.apply_slice(&c);
-        c = zip(c, cp).map(|(a, b)| min(a, b)).collect();
-        pow_pibar = &pow_pibar * &pow_pibar;
-    }
-    c
-}
-
-fn x_if<V>(bv: V) -> Permutation
+fn x_if<V: IntoIterator<Item = bool>>(bv: V) -> Permutation
 where
-    V: IntoIterator<Item = bool>,
 {
     let indices: Vec<_> = bv
         .into_iter()
         .enumerate()
         .flat_map(|(i, b)| {
             let n = i << 1;
+            let m = n + 1;
             if b {
-                [n + 1, n]
+                [m, n]
             } else {
-                [n, n + 1]
+                [n, m]
             }
         })
         .collect();
     Permutation::oneline(indices)
 }
 
+fn xor_perm(half_len: usize) -> Permutation {
+    let bits = repeat(false).take(half_len);
+    x_if(bits)
+}
+
 type FlmDecomp = (Vec<bool>, Permutation, Vec<bool>);
 
 fn flm_decomp(pi: &Permutation) -> FlmDecomp {
     let m = get_permutation_exponent(pi).unwrap();
-    let c = cyclemin_pibar(pi.clone());
-    let f: Vec<_> = (0..(1 << (m - 1))).map(|x| c[2 * x] % 2 == 1).collect();
-    let f_result = f.clone();
-    let f_perm = x_if(f);
-    let f_perm_pi = &f_perm * pi;
-    let l: Vec<_> = (0..(1 << (m - 1)))
-        .map(|x| f_perm_pi.apply_idx(2 * x) % 2 == 1)
-        .collect();
-    let l_result = l.clone();
-    let l_perm = x_if(l);
-    let m_perm = &f_perm_pi * &l_perm;
-    (f_result, m_perm, l_result)
+    if m == 0 {
+        (vec![], Permutation::oneline([0]), vec![])
+    } else {
+        let c = {
+            let pi_inv = &pi.clone().inverse();
+            let xor = &xor_perm(1 << (m - 1));
+            let mut c: Vec<usize> = (0..(1 << m)).collect();
+            let mut pow_pibar = &(pi * xor) * &(pi_inv * xor);
+            for _ in 0..m {
+                let cp = pow_pibar.apply_slice(&c);
+                c = zip(c, cp).map(|(a, b)| min(a, b)).collect();
+                pow_pibar = &pow_pibar * &pow_pibar;
+            }
+            c
+        };
+        let f: Vec<_> = (0..(1 << (m - 1))).map(|x| c[2 * x] % 2 == 1).collect();
+        let f_bits = f.clone();
+        let f_perm = &x_if(f);
+        let f_perm_pi = &(f_perm * pi);
+        let l: Vec<_> = (0..(1 << (m - 1)))
+            .map(|x| f_perm_pi.apply_idx(2 * x) % 2 == 1)
+            .collect();
+        let l_bits = l.clone();
+        let l_perm = &x_if(l);
+        let m_perm = f_perm_pi * l_perm;
+        (f_bits, m_perm, l_bits)
+    }
 }
 
-#[must_use]
-fn controlbits_stack(pi_init: Permutation) -> ControlBits {
-    let m_init = get_permutation_exponent(&pi_init).unwrap();
+fn controlbits_stack(pi_init: &Permutation) -> ControlBits {
+    let m_init = get_permutation_exponent(pi_init).unwrap();
     let mut control_bits: Vec<bool> = Vec::with_capacity((2 * m_init - 1) << (m_init - 1));
     control_bits.resize((2 * m_init - 1) << (m_init - 1), false);
-    let mut stack: Vec<(usize, Permutation)> = vec![(0, pi_init)];
+    let mut stack: Vec<(usize, Permutation)> = vec![(0, pi_init.clone())];
     while let Some((pos, pi_curr)) = stack.pop() {
         let m_curr = get_permutation_exponent(&pi_curr).unwrap();
         if 0 < m_curr {
@@ -215,51 +220,55 @@ fn controlbits_stack(pi_init: Permutation) -> ControlBits {
             ));
         }
     }
-    ControlBits::from_bits(control_bits)
+    ControlBits::from_bits(control_bits, m_init)
 }
 
 #[must_use]
 fn controlbits_recur(pi: &Permutation) -> ControlBits {
     let m = get_permutation_exponent(pi).unwrap();
     match m.cmp(&1) {
-        Ordering::Less => ControlBits::from_bits(vec![]),
-        Ordering::Equal => ControlBits::from_bits(vec![pi.apply_idx(0) != 0]),
+        Ordering::Less => ControlBits::from_bits([], 0),
+        Ordering::Equal => ControlBits::from_bits([pi.apply_idx(0) != 0], 1),
         Ordering::Greater => {
             let (first_bits, middle_perm, last_bits) = flm_decomp(pi);
-            let middle_perm = middle_perm.normalize(false);
-            let even_indices = (0..1 << m)
-                .step_by(2)
-                .map(|x| middle_perm.apply_idx(x) >> 1);
-            let odd_indices = (0..1 << m)
-                .skip(1)
-                .step_by(2)
-                .map(|x| middle_perm.apply_idx(x) >> 1);
-            let even_perm = Permutation::oneline(even_indices.collect::<Vec<usize>>());
-            let odd_perm = Permutation::oneline(odd_indices.collect::<Vec<usize>>());
-            let middle_bits = controlbits_recur(&even_perm)
-                .into_iter()
-                .zip(controlbits_recur(&odd_perm))
-                .flat_map(|(a, b)| [a, b]);
+            let even_perm = Permutation::oneline(
+                (0..1 << m)
+                    .step_by(2)
+                    .map(|x| middle_perm.apply_idx(x) >> 1)
+                    .collect::<Vec<_>>(),
+            );
+            let even_bits = controlbits_recur(&even_perm);
+            let odd_perm = Permutation::oneline(
+                (0..1 << m)
+                    .skip(1)
+                    .step_by(2)
+                    .map(|x| middle_perm.apply_idx(x) >> 1)
+                    .collect::<Vec<usize>>(),
+            );
+            let odd_bits = controlbits_recur(&odd_perm);
+            let middle_bits = even_bits.interleve(&odd_bits).unwrap();
             let bits: Vec<_> = first_bits
                 .into_iter()
                 .chain(middle_bits)
                 .chain(last_bits)
                 .collect();
-            ControlBits::from_bits(bits)
+            ControlBits::from_bits(bits, m)
         }
     }
 }
 
+#[must_use]
 pub fn controlbits(pi_init: &Permutation) -> ControlBits {
-    /* let p = pi_init.clone();
-    controlbits_stack(p)
-    */
     controlbits_recur(pi_init)
 }
 
 fn main() {
-    let c1 = ControlBits::from_bits(vec![false, false, true, false, true, false]);
-    assert!(c1 == controlbits(&permutation(&c1)));
-    let p1 = Permutation::oneline(vec![2, 3, 1, 0]);
-    assert!(p1 == permutation(&controlbits(&p1)));
+    let c1 = ControlBits::from_bits([false, false, true, false, true, false], 2);
+    assert!(c1 == controlbits(&Permutation::from(&c1)));
+    let p1 = Permutation::oneline([2, 3, 1, 0]);
+    assert!(p1 == (&controlbits(&p1)).into());
+    let c2 = c1.inverse();
+    assert!(Permutation::one(4) == &Permutation::from(&c1) * &Permutation::from(&c2));
+    assert!(Permutation::one(3) == Permutation::oneline([0, 1, 2, 4, 3]));
+    assert!(controlbits_recur(&p1) == controlbits_stack(&p1));
 }
