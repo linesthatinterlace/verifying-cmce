@@ -46,94 +46,109 @@ def controlbits(pi):
     z = [s for s0s1 in zip(*subz) for s in s0s1]
     return f+z+l
 
+def X_if(bs):
+  return [item for l in [(place << 1) ^ bit for place, bit in enumerate(bs)] for item in (l, l ^ 1)]
 
-def cyclemin_pibar(m, pi):
-    n = 1 << m
-    p = [pi[x ^ 1] for x in range(n)]
-    q = [pi[x] ^ 1 for x in range(n)]
-    c = range(n)
-    for _ in range(m):
+def cyclemin_pibar(pi):
+    c = range(len(pi))
+    p = [pi[x ^ 1] for x in c]
+    q = [pi[x] ^ 1 for x in c]
+    for _ in range(len(pi).bit_length()) :
         p, q = composeinv(p, q), composeinv(q, p)
         cp = composeinv(c, q)
         c = [min(ci, cip) for (ci, cip) in zip(c, cp)]
     return c
 
-
-def X_if(bs):
-    return [x ^ bs[x//2] for x in range(2*len(bs))]
-
-
-def flm_decomp(m, pi):
-    n = 1 << m
-    c = cyclemin_pibar(m, pi)
-    f = [c[2*j] % 2 for j in range(n//2)]
+def flm_decomp(pi):
+    n = len(pi)
+    c = cyclemin_pibar(pi)
+    f = [c[j << 1] % 2 for j in range(n >> 1)]
     F = X_if(f)
     piinv = composeinv(range(n), pi)
     Fpi = composeinv(F, piinv)
-    l = [Fpi[2*k] % 2 for k in range(n//2)]
+    l = [Fpi[k << 1] % 2 for k in range(n >> 1)]
     L = X_if(l)
     M = composeinv(Fpi, L)
     return (f, M, l)
 
 
-def controlbits_iter(m_init, pi_init):
+def permutation2(c):
+    m = 0
+    while (2*m + 1) << m < len(c):
+        m += 1
+    assert (2*m + 1) << m == len(c)
+
+    pi = list(range(1 << (m + 1)))
+
+    c_chunks = [c[i : i + (1 << m)] for i in range(0, len(c), 1 << m)]
+    for i, chunk in enumerate(c_chunks):
+        k = min(i, 2*m - i)
+        for j, b in enumerate(chunk):
+            above_k = (j >> k) << k
+            below_k = j ^ above_k
+            low = (above_k << 1) ^ below_k
+            up = low ^ (b << k)
+            pi[low], pi[up] = pi[up], pi[low]
+
+    return pi
+
+def controlbits_iter(pi_init):
     '''
-      pi_init is a permutation of [0, 1, .., 2^^(m_init) - 1], where m_init is a positive integer.
+      pi_init is a permutation of [0, 1, .., 2^^(m_init + 1) - 1], where m_init is a positive integer.
       We don't perform data validation, but if we did, you would need to check that the values in
-      pi_init were 0, 1, ..., 2^^(m_init) - 1, in some order (which implicitly also verifies the
+      pi_init were 0, 1, ..., 2^^(m_init + 1) - 1, in some order (which implicitly also verifies the
       length).
 
-      The output is a list of (2*m - 1) ** 2^^(m_init - 1) bits.
+      The output is a list of 2^^m_init * (2*m_init + 1) bits.
     '''
 
-    # This quantity recurs multiple times and so it is useful to name it. It is the number of bits
-    # which represent the first layer of flips in the control bits representation.
-    n_pairs = 1 << (m_init - 1)
+    m_init = len(pi_init).bit_length() - 2
+    n_pairs = len(pi_init) >> 1
+    control_bits = [None] * ((2*m_init + 1) * n_pairs)
 
-    # We initialise our control_bits array. We essentially treat this as write-only (in the sense
-    # that we will never read from it) but writes will not occur in linear order.
-    control_bits = [None] * ((2*m_init - 1) * n_pairs)
-
-    # We initialise the stack, starting our writing head at 0.
-    stack = [(0, m_init, pi_init)]
+    stack = [(0, pi_init)]
     while stack:
-        # We pop the top of the stack.
-        # pos is the current position we are writing to in control_bits.
-        # m_curr and pi_curr are the current values of m and pi.
-        # m_curr is determinable from pi_curr but it is convenient to store it.
-        pos, m_curr, pi_curr = stack.pop()
-        # If m_curr == 1 we have reached the base case where we can simply read
-        # off the bit. (We could use m_curr == 0 as the base case - the loop body does
-        # work for m_curr == 1 - but this is more efficient.)
-        if m_curr == 1:
-            control_bits[pos] = pi_curr[0]
 
-        elif m_curr > 1:
-            # Calculate the first and the last 2^^(m_curr - 1) bits, which
-            # represent the outer pair swaps, and the middle that remains,
-            # The middle permutation is parity-preserving.
-            (first_bits, middle_perm, last_bits) = flm_decomp(m_curr, pi_curr)
+        pos, pi = stack.pop()
+        if len(pi) >= 2:
 
-            # gap is the space between each bit set. For each layer of the stack,
-            # this is twice is large, because an extra interleve of bits occurs to it.
-            gap = n_pairs >> (m_curr - 1)
+            (first_bits, middle_perm, last_bits) = flm_decomp(pi)
 
-            # shift calculates where we need to start writing the last bits.
-            shift = (m_curr - 1) << m_init
+            m = len(pi).bit_length() - 2
+            gap = n_pairs >> m
+            shift = m << (m_init + 1)
 
-            # These two lines place the bits we calculate this time in the right places.
-            control_bits[pos: pos + n_pairs: gap] = first_bits
-            control_bits[pos + shift: pos + shift + n_pairs: gap] = last_bits
+            control_bits[pos : pos + n_pairs : gap] = first_bits
+            control_bits[pos + shift : pos + shift + n_pairs : gap] = last_bits
 
-            # We divide the middle perm (which preserves parity) by 2 and get two weaved perms
-            # which we then unweave.
-            even_perm = [x // 2 for x in middle_perm[::2]]
-            odd_perm = [x // 2 for x in middle_perm[1::2]]
+            even_perm = [x >> 1 for x in middle_perm[::2]]
+            odd_perm = [x >> 1 for x in middle_perm[1::2]]
 
-            # We add the unweaved perms to the stack, moving the writing head to the right place
-            # for each. This process terminates because m_curr is reduced by 1 for both (and it is
-            # the "right" value for the new permutation).
-            stack.append((pos + n_pairs, m_curr - 1, even_perm))
-            stack.append((pos + n_pairs + gap, m_curr - 1, odd_perm))
+            stack.append((pos + n_pairs, even_perm))
+            stack.append((pos + n_pairs + gap, odd_perm))
 
     return control_bits
+
+def controlbits_recur(pi):
+    '''
+      pi_init is a permutation of [0, 1, .., 2^^(m_init + 1) - 1], where m_init is a positive integer.
+      We don't perform data validation, but if we did, you would need to check that the values in
+      pi_init were 0, 1, ..., 2^^(m_init + 1) - 1, in some order (which implicitly also verifies the
+      length).
+
+      The output is a list of 2^^m_init * (2*m_init + 1) bits.
+    '''
+
+    if len(pi) >= 2:
+      if len(pi) == 2:
+        return [pi[0]]
+
+      (first_bits, middle_perm, last_bits) = flm_decomp(pi)
+
+      even_perm = [x >> 1 for x in middle_perm[0::2]]
+      odd_perm = [x >> 1 for x in middle_perm[1::2]]
+
+      even_bits = controlbits_recur(even_perm)
+      odd_bits = controlbits_recur(odd_perm)
+
+      return first_bits + [s for s0s1 in zip(even_bits, odd_bits) for s in s0s1] + last_bits
