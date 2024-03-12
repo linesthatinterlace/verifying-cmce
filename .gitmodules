@@ -1,0 +1,3 @@
+[submodule "lean4/controlbits"]
+	path = lean4/controlbits
+	url = git@github.com:linesthatinterlace/controlbits.git
