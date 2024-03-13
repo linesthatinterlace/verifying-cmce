@@ -1,3 +1,5 @@
+import random
+
 def permutation(c):
     m = 1
     while (2*m-1) << (m-1) < len(c):
@@ -12,7 +14,6 @@ def permutation(c):
                 pos = (j % gap)+2*gap*(j//gap)
                 pi[pos], pi[pos+gap] = pi[pos+gap], pi[pos]
     return pi
-
 
 def composeinv(c, pi):
     return [y for x, y in sorted(zip(pi, c))]
@@ -32,7 +33,7 @@ def controlbits(pi):
     p, q = composeinv(p, q), composeinv(q, p)
     c = [min(x, p[x]) for x in range(n)]
     p, q = composeinv(p, q), composeinv(q, p)
-    for i in range(1, m-1):
+    for _ in range(1, m-1):
         cp, p, q = composeinv(c, q), composeinv(p, q), composeinv(q, p)
         c = [min(c[x], cp[x]) for x in range(n)]
     f = [c[2*j] % 2 for j in range(n//2)]
@@ -46,33 +47,14 @@ def controlbits(pi):
     z = [s for s0s1 in zip(*subz) for s in s0s1]
     return f+z+l
 
-def X_if(bs):
-  return [item for l in [(place << 1) ^ bit for place, bit in enumerate(bs)] for item in (l, l ^ 1)]
+def permutation_chunks(c):
+    '''
+      c is a list of 2^^m * (2*m + 1) bits, where m is a nonnegative integer.
 
-def cyclemin_pibar(pi):
-    c = range(len(pi))
-    p = [pi[x ^ 1] for x in c]
-    q = [pi[x] ^ 1 for x in c]
-    for _ in range(len(pi).bit_length()) :
-        p, q = composeinv(p, q), composeinv(q, p)
-        cp = composeinv(c, q)
-        c = [min(ci, cip) for (ci, cip) in zip(c, cp)]
-    return c
+      The output is a permutation of [0, 1, .., 2^^(m + 1) - 1] corresponding to the control
+      bits represented by c.
+    '''
 
-def flm_decomp(pi):
-    n = len(pi)
-    c = cyclemin_pibar(pi)
-    f = [c[j << 1] % 2 for j in range(n >> 1)]
-    F = X_if(f)
-    piinv = composeinv(range(n), pi)
-    Fpi = composeinv(F, piinv)
-    l = [Fpi[k << 1] % 2 for k in range(n >> 1)]
-    L = X_if(l)
-    M = composeinv(Fpi, L)
-    return (f, M, l)
-
-
-def permutation2(c):
     m = 0
     while (2*m + 1) << m < len(c):
         m += 1
@@ -86,15 +68,77 @@ def permutation2(c):
         for j, b in enumerate(chunk):
             above_k = (j >> k) << k
             below_k = j ^ above_k
-            low = (above_k << 1) ^ below_k
-            up = low ^ (b << k)
+            low = (above_k << 1) | below_k
+            up = low | (b << k)
             pi[low], pi[up] = pi[up], pi[low]
 
     return pi
 
-def controlbits_iter(pi_init):
+def x_if_compose_left (bs, cs):
     '''
-      pi_init is a permutation of [0, 1, .., 2^^(m_init + 1) - 1], where m_init is a positive integer.
+      bs is a list of bits of length 2^m.
+      c is a list of numbers < 2^(m + 1) (that is, whose binary representation has at most m + 1
+      bits).
+
+      X_if_compose_left returns the list of such numbers with their last bit flipped according
+      to whether the bit that corresponds to the index of bs given by their m most-significant bits
+      is set.
+
+      For a cs representing a permutation, this is the same as as multiplication on the left by the
+      permutation defined by the bs.
+    '''
+    return [c ^ bs[c >> 1] for c in cs]
+
+def x_if_compose_right (cs, bs):
+    '''
+      bs is a list of bits of length k.
+      c is a list whose length is 2*k.
+
+      X_if_compose_right returns the same list, with adjacent pairs of elements flipped just when
+      the corresponding bit of bs is set.
+
+      For a cs representing a permutation, this is the same as as multiplication on the right by the
+      permutation defined by the bs.
+    '''
+    for p, b in enumerate(bs):
+        low = p << 1
+        up = low ^ b
+        cs[low], cs[up] = cs[up], cs[low]
+
+    return cs
+
+def cyclemin_pibar(pi):
+    '''
+      Given a permutation pi on 2^k, calculate the minimum member of the cycle corresponding to
+      the elements of 0, ... 2^k under the commutator of pi with the xor involution.
+    '''
+    c = range(len(pi))
+    p = [pi[x ^ 1] for x in c]
+    q = [x ^ 1 for x in pi]
+    for _ in range(len(pi).bit_length() - 1) :
+        p, q = composeinv(p, q), composeinv(q, p)
+        cp = composeinv(c, q)
+        c = [min(ci, cip) for (ci, cip) in zip(c, cp)]
+
+    return c
+
+def flm_decomp(pi):
+    '''
+      Decompose a permutation pi on 2^^(k + 1) elements into a permutation m on 2^(k + 1) elements
+      which preserves parity, and two bitstrings f and l which represent conditional xor
+      permutations F and L such that pi = F * m * L.
+    '''
+    cs = cyclemin_pibar(pi)
+    f = [c & 1 for c in cs[::2]]
+    fpi = x_if_compose_left(f, pi)
+    l = [k & 1 for k in fpi[::2]]
+    m = x_if_compose_right(fpi, l)
+    return (f, m, l)
+
+def controlbits_iter(pi_init : "list[int]") -> "list[int]":
+    '''
+      pi_init is a permutation of [0, 1, .., 2^^(m_init + 1) - 1], where m_init is a nonnegative
+      integer.
       We don't perform data validation, but if we did, you would need to check that the values in
       pi_init were 0, 1, ..., 2^^(m_init + 1) - 1, in some order (which implicitly also verifies the
       length).
@@ -104,51 +148,73 @@ def controlbits_iter(pi_init):
 
     m_init = len(pi_init).bit_length() - 2
     n_pairs = len(pi_init) >> 1
-    control_bits = [None] * ((2*m_init + 1) * n_pairs)
+    control_bits = [-1] * ((2*m_init + 1) * n_pairs)
 
     stack = [(0, pi_init)]
     while stack:
 
         pos, pi = stack.pop()
-        if len(pi) >= 2:
+        m = len(pi).bit_length() - 2
+        if m >= 0:
+            if m == 0:
+                control_bits[pos] = pi[0]
+            else:
+                (first_bits, middle_perm, last_bits) = flm_decomp(pi)
 
-            (first_bits, middle_perm, last_bits) = flm_decomp(pi)
+                gap = 1 << (m_init - m)
 
-            m = len(pi).bit_length() - 2
-            gap = n_pairs >> m
-            shift = m << (m_init + 1)
+                for i, (fb, lb) in enumerate(zip(first_bits, last_bits)):
+                    control_bits[pos + gap*i] = fb
+                    control_bits[pos + gap*i + (m << (m_init + 1))] = lb
 
-            control_bits[pos : pos + n_pairs : gap] = first_bits
-            control_bits[pos + shift : pos + shift + n_pairs : gap] = last_bits
+                middle_perm = [x >> 1 for x in middle_perm]
 
-            even_perm = [x >> 1 for x in middle_perm[::2]]
-            odd_perm = [x >> 1 for x in middle_perm[1::2]]
-
-            stack.append((pos + n_pairs, even_perm))
-            stack.append((pos + n_pairs + gap, odd_perm))
+                stack.append((pos + n_pairs + gap, middle_perm[1::2]))
+                stack.append((pos + n_pairs, middle_perm[::2]))
 
     return control_bits
 
-def controlbits_recur(pi):
+def controlbits_recur(pi : "list[int]") -> "list[int]":
     '''
-      pi_init is a permutation of [0, 1, .., 2^^(m_init + 1) - 1], where m_init is a positive integer.
+      pi_init is a permutation of [0, 1, .., 2^^(m_ init + 1) - 1], where m_init is a positive
+      integer.
       We don't perform data validation, but if we did, you would need to check that the values in
       pi_init were 0, 1, ..., 2^^(m_init + 1) - 1, in some order (which implicitly also verifies the
       length).
 
       The output is a list of 2^^m_init * (2*m_init + 1) bits.
     '''
-
+    control_bits = []
     if len(pi) >= 2:
-      if len(pi) == 2:
-        return [pi[0]]
+        if len(pi) == 2:
+            control_bits = [pi[0]]
+        else:
+            (first_bits, middle_perm, last_bits) = flm_decomp(pi)
+            middle_perm = [x >> 1 for x in middle_perm]
+            even_perm = middle_perm[0::2]
+            odd_perm = middle_perm[1::2]
 
-      (first_bits, middle_perm, last_bits) = flm_decomp(pi)
+            even_bits = controlbits_recur(even_perm)
+            odd_bits = controlbits_recur(odd_perm)
 
-      even_perm = [x >> 1 for x in middle_perm[0::2]]
-      odd_perm = [x >> 1 for x in middle_perm[1::2]]
+            middle_bits = [s for s0s1 in zip(even_bits, odd_bits) for s in s0s1]
 
-      even_bits = controlbits_recur(even_perm)
-      odd_bits = controlbits_recur(odd_perm)
+            control_bits = first_bits + middle_bits + last_bits
+    return control_bits
 
-      return first_bits + [s for s0s1 in zip(even_bits, odd_bits) for s in s0s1] + last_bits
+def random_control_bits(n):
+    return [random.getrandbits(1) for _ in range((2*n + 1) << n )]
+
+def test_random_control_bits(n, test_num):
+    fail = 0
+    for _ in range(test_num):
+        cb = random_control_bits(n)
+        p = permutation(cb)
+        cb2 = controlbits_recur(p)
+        p2 = permutation(cb2)
+        if p != p2:
+            fail += 1
+    successes = test_num - fail
+    print(f"Tested {test_num} times with size parameter {n}")
+    print(f"Failures: {fail}")
+    print(f"Successes: {successes}")

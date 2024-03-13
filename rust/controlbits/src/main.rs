@@ -1,239 +1,358 @@
 #![deny(clippy::pedantic)]
-pub use permutation::Permutation;
+#![allow(clippy::missing_panics_doc)]
 use std::cmp::min;
-use std::iter::repeat;
 use std::iter::zip;
+
+fn add_gap_at(k: usize, i: usize) -> usize {
+    let top_bits = (k >> i) << i;
+
+    (top_bits << 1) | (k ^ top_bits)
+}
+
+fn remove_at(k: usize, i: usize) -> usize {
+    let top_bits = (k >> i) << i;
+
+    (top_bits >> 1) | (k ^ top_bits)
+}
+
+type Perm = Vec<usize>;
+
 #[derive(Clone, Debug, PartialEq)]
-pub struct ControlBits {
-    layer: usize,
-    bits: Vec<bool>,
-}
+pub struct ControlBitsLayer(Vec<bool>);
 
-fn add_bit(i: usize, b: bool, k: usize) -> usize {
-    let top_bits = k >> i << i;
+impl ControlBitsLayer {
+    #[must_use]
+    pub fn new(bits: &[bool]) -> ControlBitsLayer {
+        let len = bits.len();
+        let size = len.trailing_zeros();
 
-    (top_bits << 1) | usize::from(b) << i | (k ^ top_bits)
-}
+        assert!(len == 1 << size);
 
-impl ControlBits {
-    fn valid(&self) -> bool {
-        let len = self.bits.len();
-        let layer = self.layer;
-        len == (2 * layer + 1) << layer
-    }
-
-    /// Converts a bitvector into a packaged `ControlBits` representation, checking its validity
-    /// against a specified size.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `layer` is not compatible with the size of bv.
-    pub fn from_bits<V>(layer: usize, bv: V) -> ControlBits
-    where
-        V: IntoIterator<Item = bool>,
-    {
-        let bits = bv.into_iter().collect();
-        let result = ControlBits { layer, bits };
-        assert!(result.valid());
-
-        result
+        ControlBitsLayer(bits.to_vec())
     }
 
     #[must_use]
-    pub fn inverse(&self) -> ControlBits {
-        Self::from_bits(
-            self.layer,
-            self.bits
-                .rchunks_exact(1 << self.layer)
-                .flatten()
-                .copied()
-                .collect::<Vec<_>>(),
-        )
+    fn bits(&self) -> &Vec<bool> {
+        &self.0
     }
 
-    pub fn apply_slice_in_place<T>(&self, a: &mut [T]) {
-        let layer = self.layer;
-        for (i, ch) in self.bits.chunks_exact(1 << layer).enumerate() {
-            let gap = layer - layer.abs_diff(i);
-            for (j, &b) in ch.iter().enumerate() {
-                a.swap(add_bit(gap, false, j), add_bit(gap, b, j));
-            }
+    #[must_use]
+    pub fn num_bits(&self) -> usize {
+        self.bits().len()
+    }
+
+    #[must_use]
+    pub fn size(&self) -> usize {
+        self.num_bits().trailing_zeros() as usize
+    }
+
+    pub fn layer_index_mut<T>(&self, gap: usize, slice: &mut impl AsMut<[T]>) {
+        assert!(gap <= self.size());
+        for (j, &b) in self.bits().iter().enumerate() {
+            let p = add_gap_at(j, gap);
+            let q = p | (usize::from(b) << gap);
+            slice.as_mut().swap(p, q);
         }
     }
 
-    pub fn apply_inv_slice_in_place<T>(&self, a: &mut [T]) {
-        let inv = self.inverse();
-        inv.apply_slice_in_place(a);
+    pub fn zero_layer_index_mut<T>(&self, slice: &mut impl AsMut<[T]>) {
+        for (j, &b) in self.bits().iter().enumerate() {
+            let p = j << 1;
+            let q = p | usize::from(b);
+            slice.as_mut().swap(p, q);
+        }
     }
 
-    pub fn apply_slice<T: Clone, S>(&self, slice: S) -> Vec<T>
-    where
-        S: AsRef<[T]>,
-    {
+    pub fn layer_index<T: Clone>(&self, gap: usize, slice: impl AsRef<[T]>) -> Vec<T> {
         let s = slice.as_ref();
         let mut result: Vec<T> = s.to_vec();
-        self.apply_slice_in_place(&mut result);
+        self.layer_index_mut(gap, &mut result);
+
         result
     }
 
-    pub fn apply_slice_inv<T: Clone, S>(&self, slice: S) -> Vec<T>
-    where
-        S: AsRef<[T]>,
-    {
+    pub fn zero_layer_index<T: Clone>(&self, slice: impl AsRef<[T]>) -> Vec<T> {
         let s = slice.as_ref();
         let mut result: Vec<T> = s.to_vec();
-        self.apply_inv_slice_in_place(&mut result);
+        self.zero_layer_index_mut(&mut result);
+
         result
+    }
+
+    pub fn layer_contents_mut(&self, gap: usize, slice: &mut impl AsMut<[usize]>) {
+        assert!(gap <= self.size());
+        for s in slice.as_mut() {
+            *s ^= usize::from(self.bits()[remove_at(*s, gap)]) << gap;
+        }
+    }
+
+    pub fn zero_layer_contents_mut(&self, slice: &mut impl AsMut<[usize]>) {
+        for s in slice.as_mut() {
+            *s ^= usize::from(self.bits()[*s >> 1]);
+        }
     }
 }
 
-impl IntoIterator for ControlBits {
+impl IntoIterator for ControlBitsLayer {
     type Item = bool;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.bits.into_iter()
+        self.0.into_iter()
     }
 }
 
-impl From<&ControlBits> for Permutation {
-    fn from(cb: &ControlBits) -> Permutation {
-        let m = cb.layer;
-        let mut pi: Vec<_> = (0..2 << m).collect();
-        cb.apply_slice_in_place(pi.as_mut());
-        Permutation::oneline(pi)
+impl FromIterator<bool> for ControlBitsLayer {
+    fn from_iter<I: IntoIterator<Item = bool>>(iter: I) -> Self {
+        let k: Vec<bool> = iter.into_iter().collect();
+        ControlBitsLayer::new(&k)
     }
 }
 
-fn get_permutation_layer(pi: &Permutation) -> Option<usize> {
-    let n = pi.len() >> 1;
-    n.is_power_of_two().then_some(n.trailing_zeros() as usize)
-}
+#[derive(Clone, Debug, PartialEq)]
+pub struct ControlBits(Vec<ControlBitsLayer>);
 
-fn x_if(bv: &[bool]) -> Permutation {
-    let mut pi: Vec<_> = (0..2 * bv.len()).collect();
-    for (j, &b) in bv.iter().enumerate() {
-        pi.swap(add_bit(0, false, j), add_bit(0, b, j));
+impl ControlBits {
+    #[must_use]
+    pub fn new(layers: &[ControlBitsLayer]) -> ControlBits {
+        let num_layers = layers.len();
+        let size = num_layers >> 1;
+        assert!(num_layers == (size << 1) + 1);
+        assert!(layers.iter().all(|l| l.size() == size));
+
+        ControlBits(layers.to_vec())
     }
-    Permutation::oneline(pi)
-}
 
-fn xor_perm(half_len: usize) -> Permutation {
-    let bits = repeat(true).take(half_len).collect::<Vec<_>>();
-    x_if(&bits)
-}
+    #[must_use]
+    pub fn new_from_bits(bits: &[bool]) -> ControlBits {
+        let size = bits.len().trailing_zeros() as usize;
+        let layers = bits
+            .chunks_exact(1 << size)
+            .map(ControlBitsLayer::new)
+            .collect();
 
-type FlmDecomp = (Vec<bool>, Permutation, Vec<bool>);
+        layers
+    }
 
-fn flm_decomp(m: usize, pi: &Permutation) -> FlmDecomp {
-    assert!(pi.len() == 2 << m);
-    let c = {
-        let pi_inv = &pi.clone().inverse();
-        let xor = &xor_perm(1 << m);
-        let mut c: Vec<usize> = (0..(2 << m)).collect();
-        let mut pow_pibar = &(pi * xor) * &(pi_inv * xor);
-        for _ in 0..=m {
-            let cp = pow_pibar.apply_slice(&c);
-            c = zip(c, cp).map(|(a, b)| min(a, b)).collect();
-            pow_pibar = &pow_pibar * &pow_pibar;
+    fn layers(&self) -> &[ControlBitsLayer] {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn num_layers(&self) -> usize {
+        self.layers().len()
+    }
+
+    #[must_use]
+    pub fn size(&self) -> usize {
+        self.num_layers() >> 1
+    }
+
+    #[must_use]
+    pub fn num_bits_per_layer(&self) -> usize {
+        1 << self.size()
+    }
+
+    #[must_use]
+    pub fn num_bits(&self) -> usize {
+        self.num_layers() * self.num_bits_per_layer()
+    }
+
+    pub fn inverse_mut(&mut self) {
+        self.0.reverse();
+    }
+
+    #[must_use]
+    pub fn inverse(&self) -> ControlBits {
+        let mut rls: Vec<_> = self.layers().to_vec();
+        rls.reverse();
+
+        ControlBits(rls)
+    }
+
+    pub fn apply_control_bits_mut<T>(&self, slice: &mut impl AsMut<[T]>) {
+        for (i, l) in self.layers().iter().enumerate() {
+            let gap = min(i, 2 * self.size() - i);
+            l.layer_index_mut(gap, slice);
         }
-        c
-    };
-    let f: Vec<_> = (0..(1 << m)).map(|x| c[2 * x] % 2 == 1).collect();
-    let f_bits = f.clone();
-    let f_perm = &x_if(&f);
-    let f_perm_pi = &(f_perm * pi);
-    let l: Vec<_> = (0..(1 << m))
-        .map(|x| f_perm_pi.apply_idx(2 * x) % 2 == 1)
-        .collect();
-    let l_bits = l.clone();
-    let l_perm = &x_if(&l);
-    let m_perm = f_perm_pi * l_perm;
-    (f_bits, m_perm, l_bits)
+    }
+
+    pub fn apply_control_bits<T: Clone>(&self, slice: impl AsRef<[T]>) -> Vec<T> {
+        let s = slice.as_ref();
+        let mut result: Vec<T> = s.to_vec();
+        self.apply_control_bits_mut(&mut result);
+
+        result
+    }
+
+    pub fn bits(self) -> std::iter::Flatten<std::vec::IntoIter<ControlBitsLayer>> {
+        self.0.into_iter().flatten()
+    }
+
+    #[must_use]
+    pub fn permutation(&self) -> Perm {
+        let mut pi: Perm = (0..self.num_bits_per_layer() << 1).collect();
+        self.apply_control_bits_mut(&mut pi);
+
+        pi
+    }
 }
 
-/*
-fn controlbits_stack(m_init: usize, pi_init: &Permutation) -> ControlBits {
-    assert!(pi_init.len() == 2 << m_init);
-
-    let mut control_bits: Vec<bool> = Vec::with_capacity((2 * m_init + 1) << m_init);
-    control_bits.resize((2 * m_init + 1) << m_init, false);
-    let mut stack: Vec<(usize, usize, Permutation)> = vec![(m_init, 0, pi_init.clone())];
-    while let Some((m_curr, pos, pi_curr)) = stack.pop() {
-        let (first_bits, middle_perm, last_bits) = flm_decomp(m_curr, &pi_curr);
-        control_bits
-            .iter_mut()
-            .skip(pos)
-            .step_by(1 << (m_init - m_curr))
-            .take(1 << m_curr)
-            .zip(first_bits.iter())
-            .for_each(|(a, &b)| *a = b);
-        control_bits
-            .iter_mut()
-            .skip(pos + ((2 * m_curr) << m_init))
-            .step_by(1 << (m_init - m_curr))
-            .take(1 << m_curr)
-            .zip(last_bits.iter())
-            .for_each(|(a, &b)| *a = b);
-        let indices = (0..2 << m_curr).map(|i| middle_perm.apply_idx(i));
-        let even_indices: Vec<usize> = indices.clone().step_by(2).map(|x| x >> 1).collect();
-        let odd_indices: Vec<usize> = indices.skip(1).step_by(2).map(|x| x >> 1).collect();
-        let even_perm = Permutation::oneline(even_indices);
-        let odd_perm = Permutation::oneline(odd_indices);
-        if m_curr != 0 {
-            stack.push((m_curr - 1, pos + (1 << m_init), even_perm));
-            stack.push((
-                m_curr - 1,
-                pos + (1 << m_init) + (1 << (m_init - m_curr)),
-                odd_perm,
-            ));
-        };
+impl From<ControlBits> for Vec<bool> {
+    fn from(cb: ControlBits) -> Self {
+        cb.bits().collect()
     }
-    ControlBits::from_bits(m_init, control_bits)
-}*/
+}
 
-fn controlbits_recur(m_init: usize, pi_init: &Permutation) -> ControlBits {
-    assert!(pi_init.len() == 2 << m_init);
+impl IntoIterator for ControlBits {
+    type Item = ControlBitsLayer;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
 
-    let (first_bits, middle_perm, last_bits) = flm_decomp(m_init, pi_init);
-    if m_init == 0 {
-        ControlBits::from_bits(0, last_bits)
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl FromIterator<ControlBitsLayer> for ControlBits {
+    fn from_iter<I: IntoIterator<Item = ControlBitsLayer>>(iter: I) -> Self {
+        let layers: Vec<_> = iter.into_iter().collect();
+        ControlBits::new(&layers)
+    }
+}
+
+impl FromIterator<bool> for ControlBits {
+    fn from_iter<I: IntoIterator<Item = bool>>(iter: I) -> Self {
+        let bv: Vec<bool> = iter.into_iter().collect();
+        ControlBits::new_from_bits(&bv)
+    }
+}
+
+fn composeinv<S: Ord + Clone, T: Ord>(a: &[S], b: &[T]) -> Vec<S> {
+    let mut pairs: Vec<(&T, &S)> = zip(b, a).collect();
+    pairs.sort_unstable();
+    let (_, result): (Vec<&T>, Vec<&S>) = pairs.into_iter().unzip();
+
+    result.into_iter().cloned().collect()
+}
+
+fn cyclemin_pibar(pi: &[usize]) -> Vec<usize> {
+    let num_elements = pi.len();
+    let mut c: Vec<usize> = (0..num_elements).collect();
+    let mut p: Perm = pi.to_vec();
+    let mut q: Perm = pi.to_vec();
+    for j in 0..num_elements / 2 {
+        let low = j << 1;
+        let high = low | 1;
+        p.swap(low, high);
+    }
+    for x in &mut q {
+        *x ^= 1;
+    }
+    let size = num_elements.trailing_zeros() as usize;
+    for _ in 0..size {
+        (p, q) = (composeinv(&p, &q), composeinv(&q, &p));
+        let cp = composeinv(&c, &q);
+        c = zip(&c, cp).map(|(&a, b)| min(a, b)).collect();
+    }
+
+    c
+}
+
+type FlmDecomp = (ControlBitsLayer, Perm, ControlBitsLayer);
+
+fn flm_decomp(pi: &Perm) -> FlmDecomp {
+    let mut m = pi.clone();
+    let cs = cyclemin_pibar(pi);
+    let f: Vec<bool> = cs.iter().step_by(2).map(|&c| c & 1 == 1).collect();
+    let f_layer = ControlBitsLayer::new(&f);
+    f_layer.zero_layer_contents_mut(&mut m);
+    let l: Vec<bool> = m.iter().step_by(2).map(|&k| k & 1 == 1).collect();
+    let l_layer = ControlBitsLayer::new(&l);
+    l_layer.zero_layer_index_mut(&mut m);
+
+    (f_layer, m, l_layer)
+}
+
+fn controlbits_recur(pi: &Perm) -> ControlBits {
+    assert!(pi.len() >= 2);
+
+    if pi.len() == 2 {
+        ControlBits::new_from_bits(&[pi[0] == 1])
     } else {
-        let even_perm = Permutation::oneline(
-            (0..2 << m_init)
-                .step_by(2)
-                .map(|x| middle_perm.apply_idx(x) >> 1)
-                .collect::<Vec<_>>(),
-        );
-        let odd_perm = Permutation::oneline(
-            (0..2 << m_init)
-                .skip(1)
-                .step_by(2)
-                .map(|x| middle_perm.apply_idx(x) >> 1)
-                .collect::<Vec<usize>>(),
-        );
-        let even_bits = controlbits_recur(m_init - 1, &even_perm);
-        let odd_bits = controlbits_recur(m_init - 1, &odd_perm);
-        let middle_bits = zip(even_bits.bits, odd_bits.bits).flat_map(|(a, b)| [a, b]);
+        let (first_bits, mut m, last_bits) = flm_decomp(pi);
+        for t in &mut m {
+            *t >>= 1;
+        }
+        let even_perm: Perm = m.iter().step_by(2).copied().collect();
+        let odd_perm: Perm = m.iter().skip(1).step_by(2).copied().collect();
+
+        let even_bits = controlbits_recur(&even_perm);
+        let odd_bits = controlbits_recur(&odd_perm);
+        let middle_bits = zip(even_bits.bits(), odd_bits.bits()).flat_map(|(a, b)| [a, b]);
+
         let bits: Vec<_> = first_bits
             .into_iter()
             .chain(middle_bits)
             .chain(last_bits)
             .collect();
-        ControlBits::from_bits(m_init, bits)
+        ControlBits::new_from_bits(&bits)
     }
 }
 
-#[must_use]
-pub fn controlbits(pi_init: &Permutation) -> Option<ControlBits> {
-    let m_init = get_permutation_layer(pi_init)?;
-    Some(controlbits_recur(m_init, pi_init))
+fn random_control_bits(size: usize) -> ControlBits {
+    let num_bits = (2 * size + 1) << size;
+    let mut bits = Vec::new();
+    for _ in 0..num_bits {
+        bits.push(rand::random::<bool>());
+    }
+
+    ControlBits::new_from_bits(&bits)
+}
+
+fn test_random_control_bits(size: usize, test_num: u32) {
+    let mut fail = 0;
+    for _ in 0..test_num {
+        let cb = random_control_bits(size);
+        let p = cb.permutation();
+        let cb2 = controlbits_recur(&p);
+        let pback = cb2.permutation();
+        if p != pback {
+            fail += 1;
+        }
+    }
+    let successes = test_num - fail;
+    println!("Tested {test_num} times with size parameter {size}.");
+    println!("Failures: {fail}");
+    println!("Successes: {successes}");
 }
 
 fn main() {
-    let c1 = ControlBits::from_bits(1, [false, false, false, false, false, true]);
-    assert!(c1 == controlbits(&Permutation::from(&c1)).unwrap());
-    let p1 = Permutation::oneline([2, 3, 1, 0]);
-    assert!(p1 == Permutation::from(&controlbits(&p1).unwrap()));
-    //assert!(controlbits_recur(1, &p1) == controlbits_stack(1, &p1));
+    let c1 = ControlBits::new_from_bits(&[false, false, false, false, false, true]);
+    println!("{c1:?}");
+    println!("{:?}", c1.permutation());
+    assert!(c1 == controlbits_recur(&c1.permutation()));
+    let p1 = vec![2, 3, 1, 0];
+    let c2 = controlbits_recur(&p1);
+    println!("{c2:?}");
+    assert!(p1 == controlbits_recur(&p1).permutation());
+    let c3 = ControlBits::new_from_bits(&[
+        false, false, false, false, false, true, false, false, false, false, false, true, false,
+        false, false, false, false, false, true, false,
+    ]);
+    println!("{c3:?}");
+    println!("{:?}", c3.permutation());
+    let p2 = vec![5, 0, 3, 7, 6, 2, 4, 1]; //[0, 3, 2, 7, 5, 4, 6, 1];
+    let c4 = controlbits_recur(&p2);
+    println!("{:?}", controlbits_recur(&p2));
+    println!("{:?}", c4.permutation());
+
+    let c5 = random_control_bits(2);
+    let p5 = c5.permutation();
+    let c5b = controlbits_recur(&p5);
+    let p5bs = c5b.permutation();
+    println!("{p5:?}");
+    println!("{p5bs:?}");
+    println!("{:?}", p5 == p5bs);
+
+    test_random_control_bits(10, 20);
 }
