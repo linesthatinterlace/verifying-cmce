@@ -115,7 +115,7 @@ def cyclemin_pibar(pi):
     c = range(len(pi))
     p = [pi[x ^ 1] for x in c]
     q = [x ^ 1 for x in pi]
-    for _ in range(len(pi).bit_length() - 1) :
+    for _ in range((len(pi) >> 2).bit_length()):
         p, q = composeinv(p, q), composeinv(q, p)
         cp = composeinv(c, q)
         c = [min(ci, cip) for (ci, cip) in zip(c, cp)]
