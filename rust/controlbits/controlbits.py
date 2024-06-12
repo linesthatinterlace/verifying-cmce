@@ -202,6 +202,93 @@ def controlbits_recur(pi : "list[int]") -> "list[int]":
             control_bits = first_bits + middle_bits + last_bits
     return control_bits
 
+def getbit(i, k):
+    return (((k >> (i + 1)) << (i + 1)) ^ k) >> i
+
+def getres(i, k):
+    top_bits = (k >> (i + 1)) << (i + 1)
+    bottom_bits = ((k ^ top_bits) | (1 << i)) ^ (1 << i)
+    return (top_bits >> 1) | bottom_bits
+
+def mergebitres(i, k, b):
+    top_bits = (k >> i) << i
+
+    k = (top_bits << 1) | (k ^ top_bits)
+    return k | (b << i)
+
+def x_if_compose_left_extended(i, bs, cs):
+    return [mergebitres(i, r, bs[r] ^ getbit(i, c)) for c in cs for r in [getres(i, c)]]
+
+def x_if_compose_right_extended(i, cs, bs):
+
+    cs = [c for c in cs]
+    for p, b in enumerate(bs):
+        low = mergebitres(i,p,0)
+        up = mergebitres(i,p,b)
+        cs[low], cs[up] = cs[up], cs[low]
+
+    return cs
+
+def xbxf_extended(i : int, pi):
+    c = range(len(pi))
+    return [pi[x ^ (1 << i)] for x in c]
+
+def cyclemin_pibar_extended(i : int, pi : "list[int]"):
+    '''
+      Given a permutation pi on 2^k, calculate the minimum member of the cycle corresponding to
+      the elements of 0, ... 2^k under the commutator of pi with the xor involution.
+    '''
+    c = range(len(pi))
+    p = [pi[x ^ (1 << i)] for x in c]
+    q = [x ^ (1 << i) for x in pi]
+    for _ in range((len(pi) >> 2).bit_length() - i):
+        p, q = composeinv(p, q), composeinv(q, p)
+        cp = composeinv(c, q)
+        c = [min(ci, cip) for (ci, cip) in zip(c, cp)]
+
+    return c
+
+def flm_decomp_extended(t : int, pi : "list[int]"):
+    '''
+      Decompose a permutation pi on 2^^(k + 1) elements into a permutation m on 2^(k + 1) elements
+      which preserves parity, and two bitstrings f and l which represent conditional xor
+      permutations F and L such that pi = F * m * L.
+    '''
+    cs = cyclemin_pibar_extended(t, pi)
+    f = [getbit(t, c) for i, c in enumerate(cs) if getbit(t, i) == 0]
+    fpi = x_if_compose_left_extended(t, f, pi)
+    l = [getbit(t, k) for i, k in enumerate(fpi) if getbit(t, i) == 0]
+    m = x_if_compose_right_extended(t, fpi, l)
+    return (f, m, l)
+
+def controlbits_extended(pi : "list[int]") -> "list[int]":
+    '''
+      pi_init is a permutation of [0, 1, .., 2^^(m_ init + 1) - 1], where m_init is a positive
+      integer.
+      We don't perform data validation, but if we did, you would need to check that the values in
+      pi_init were 0, 1, ..., 2^^(m_init + 1) - 1, in some order (which implicitly also verifies the
+      length).
+
+      The output is a list of 2^^m_init * (2*m_init + 1) bits.
+    '''
+    m = (len(pi) >> 2).bit_length()
+    return controlbits_extended_aux(0, m, pi)
+
+def controlbits_extended_aux(i : int, m : int, pi : "list[int]") -> "list[int]":
+    '''
+      pi_init is a permutation of [0, 1, .., 2^^(m_ init + 1) - 1], where m_init is a positive
+      integer.
+      We don't perform data validation, but if we did, you would need to check that the values in
+      pi_init were 0, 1, ..., 2^^(m_init + 1) - 1, in some order (which implicitly also verifies the
+      length).
+
+      The output is a list of 2^^m_init * (2*m_init + 1) bits.
+    '''
+    (first_bits, middle_perm, last_bits) = flm_decomp_extended(i, pi)
+    if i >= m:
+      return last_bits
+    return first_bits + controlbits_extended_aux(i + 1, m, middle_perm) + last_bits
+
 def random_control_bits(n):
     return [random.getrandbits(1) for _ in range((2*n + 1) << n )]
 
@@ -211,6 +298,20 @@ def test_random_control_bits(n, test_num):
         cb = random_control_bits(n)
         p = permutation(cb)
         cb2 = controlbits_recur(p)
+        p2 = permutation(cb2)
+        if p != p2:
+            fail += 1
+    successes = test_num - fail
+    print(f"Tested {test_num} times with size parameter {n}")
+    print(f"Failures: {fail}")
+    print(f"Successes: {successes}")
+
+def test_random_control_bits_extended(n, test_num):
+    fail = 0
+    for _ in range(test_num):
+        cb = random_control_bits(n)
+        p = permutation(cb)
+        cb2 = controlbits_extended(p)
         p2 = permutation(cb2)
         if p != p2:
             fail += 1
