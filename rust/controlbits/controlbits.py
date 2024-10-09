@@ -261,6 +261,14 @@ def flm_decomp_extended(t : int, pi : "list[int]"):
     m = x_if_compose_right_extended(t, fpi, l)
     return (f, m, l)
 
+def final_bits(pi : "list[int]"):
+    '''
+      Decompose a permutation pi on 2^^(k + 1) elements into a permutation m on 2^(k + 1) elements
+      which preserves parity, and two bitstrings f and l which represent conditional xor
+      permutations F and L such that pi = F * m * L.
+    '''
+    return [int(k != t) for k, t in enumerate(pi[:len(pi)//2])]
+
 def controlbits_extended(pi : "list[int]") -> "list[int]":
     '''
       pi_init is a permutation of [0, 1, .., 2^^(m_ init + 1) - 1], where m_init is a positive
@@ -288,6 +296,56 @@ def controlbits_extended_aux(i : int, m : int, pi : "list[int]") -> "list[int]":
     if i >= m:
       return last_bits
     return first_bits + controlbits_extended_aux(i + 1, m, middle_perm) + last_bits
+
+def controlbits_loop(pi : "list[int]") -> "list[int]":
+    '''
+      pi_init is a permutation of [0, 1, .., 2^^(m_ init + 1) - 1], where m_init is a positive
+      integer.
+      We don't perform data validation, but if we did, you would need to check that the values in
+      pi_init were 0, 1, ..., 2^^(m_init + 1) - 1, in some order (which implicitly also verifies the
+      length).
+
+      The output is a list of 2^^m_init * (2*m_init + 1) bits.
+    '''
+    m = (len(pi) >> 2).bit_length()
+    first_bits = []
+    last_bits = []
+    for i in range(m):
+        (left_layer, pi, right_layer) = flm_decomp_extended(i, pi)
+        first_bits = first_bits + left_layer
+        last_bits = right_layer + last_bits
+    right_layer = final_bits(pi)
+    last_bits = right_layer + last_bits
+    return first_bits + last_bits
+
+def controlbits_tailrecursive(pi : "list[int]") -> "list[int]":
+    '''
+      pi_init is a permutation of [0, 1, .., 2^^(m_ init + 1) - 1], where m_init is a positive
+      integer.
+      We don't perform data validation, but if we did, you would need to check that the values in
+      pi_init were 0, 1, ..., 2^^(m_init + 1) - 1, in some order (which implicitly also verifies the
+      length).
+
+      The output is a list of 2^^m_init * (2*m_init + 1) bits.
+    '''
+    return controlbits_tailrecursive_aux(0, pi, [], [])
+
+
+def controlbits_tailrecursive_aux(i : int, pi : "list[int]", first_bits : "list[int]", last_bits : "list[int]") -> "list[int]":
+    '''
+      pi_init is a permutation of [0, 1, .., 2^^(m_ init + 1) - 1], where m_init is a positive
+      integer.
+      We don't perform data validation, but if we did, you would need to check that the values in
+      pi_init were 0, 1, ..., 2^^(m_init + 1) - 1, in some order (which implicitly also verifies the
+      length).
+
+      The output is a list of 2^^m_init * (2*m_init + 1) bits.
+    '''
+    (left_layer, middle_perm, right_layer) = flm_decomp_extended(i, pi)
+    m = (len(pi) >> 2).bit_length()
+    if i >= m:
+      return first_bits + right_layer + last_bits
+    return controlbits_tailrecursive_aux(i + 1, middle_perm, first_bits + left_layer, right_layer + last_bits)
 
 def random_control_bits(n):
     return [random.getrandbits(1) for _ in range((2*n + 1) << n )]
